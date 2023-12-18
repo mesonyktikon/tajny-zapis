@@ -20,6 +20,9 @@ var s3Client *s3.S3
 func init() {
 	sess = session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
+		Config: aws.Config{
+			Region: aws.String("eu-north-1"),
+		},
 	}))
 	ddb = dynamodb.New(sess)
 	s3Client = s3.New(sess)
@@ -113,10 +116,11 @@ func FetchFromGSI(indexName, partitionKey, partitionValue string) ([]*common.Taj
 	return items, nil
 }
 
-func GeneratePresignedPutUrl(s3Key string) (string, error) {
+func GeneratePresignedPutUrl(s3Key string, fileSize int64) (string, error) {
 	req, _ := s3Client.PutObjectRequest(&s3.PutObjectInput{
-		Bucket: aws.String("tajny-zapis"),
-		Key:    aws.String(s3Key),
+		Bucket:        aws.String("tajny-zapis"),
+		Key:           aws.String(s3Key),
+		ContentLength: aws.Int64(fileSize),
 	})
 
 	url, err := req.Presign(1 * time.Minute)

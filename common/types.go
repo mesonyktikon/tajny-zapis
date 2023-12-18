@@ -4,6 +4,7 @@ type CreateZapisRequest struct {
 	Salt       string `json:"salt"`       // uuid4 length 36
 	AuthToken  string `json:"authToken"`  // length 44
 	WrappedKey string `json:"wrappedKey"` // length 64
+	FileSize   int64  `json:"fileSize"`
 	Ttl        int64  `json:"ttl"`
 }
 

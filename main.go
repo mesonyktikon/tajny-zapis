@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -37,34 +38,21 @@ func doTest() string {
 
 	return "ok"
 }
-
-func handleGet(ctx context.Context, request *events.LambdaFunctionURLRequest) (*events.LambdaFunctionURLResponse, error) {
-	switch request.RawPath {
-	case "/":
-		return common.MakeStringResponse(doTest(), 200), nil
-	case "/salt":
-		return logic.GetSalt(ctx, request)
+func handleRequest(ctx context.Context, request *events.LambdaFunctionURLRequest) (*events.LambdaFunctionURLResponse, error) {
+	if request.Headers["x-tajnyzapis-cf-auth"] != "1502b061-b4e5-46fa-ae8b-7cfe562d41b1" {
+		return common.MakeStringResponse("unauthorized", 401), nil
 	}
-	return common.MakeStringResponse("unknown path", 400), nil
-}
 
-func handlePost(ctx context.Context, request *events.LambdaFunctionURLRequest) (*events.LambdaFunctionURLResponse, error) {
-	switch request.RawPath {
-	case "/zapis":
+	switch fmt.Sprintf("%s %s", request.RequestContext.HTTP.Method, request.RawPath) {
+	case "GET /v1/test":
+		return common.MakeStringResponse(doTest(), 200), nil
+	case "GET /v1/salt":
+		return logic.GetSalt(ctx, request)
+	case "POST /v1/zapis":
 		return logic.CreateZapis(ctx, request)
 	}
-	return common.MakeStringResponse("unknown path", 400), nil
-}
 
-func handleRequest(ctx context.Context, request *events.LambdaFunctionURLRequest) (*events.LambdaFunctionURLResponse, error) {
-	switch request.RequestContext.HTTP.Method {
-	case "GET":
-		return handleGet(ctx, request)
-	case "POST":
-		return handlePost(ctx, request)
-	}
-
-	return common.MakeStringResponse("unknown method", 400), nil
+	return common.MakeStringResponse("unknown method/path", 400), nil
 }
 
 func main() {

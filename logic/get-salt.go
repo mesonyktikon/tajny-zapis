@@ -2,7 +2,6 @@ package logic
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -35,15 +34,8 @@ func GetSalt(ctx context.Context, request *events.LambdaFunctionURLRequest) (*ev
 		return common.MakeStringResponse(err.Error(), 500), nil
 	}
 
-	res := common.GetSaltResponse{
+	return common.MakeJsonResponse(common.GetSaltResponse{
 		Salt:        dynamoItem.Salt,
 		TollPassJwt: tollpassJwt,
-	}
-
-	resJson, err := json.Marshal(res)
-	if err != nil {
-		return common.MakeStringResponse("marshal error", 500), nil
-	}
-
-	return common.MakeStringResponse(string(resJson), 200), nil
+	}, 200), nil
 }
