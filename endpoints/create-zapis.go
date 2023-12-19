@@ -2,8 +2,9 @@ package endpoints
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -24,23 +25,19 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 	}
 
 	if len(req.Salt) != config.SaltLength {
-		return common.MakeStringResponse(fmt.Sprintf("salt length != %d", config.SaltLength), 400), nil
+		return common.MakeStringResponse("incorrect salt length", 400), nil
 	}
 
 	if len(req.AuthToken) != config.AuthTokenLength {
-		return common.MakeStringResponse(fmt.Sprintf("authToken length != %d", config.AuthTokenLength), 400), nil
+		return common.MakeStringResponse("incorrect auth token length", 400), nil
 	}
 
 	if len(req.WrappedKey) != config.WrappedKeyLength {
-		return common.MakeStringResponse(fmt.Sprintf("wrappedKey length != %d", config.WrappedKeyLength), 400), nil
+		return common.MakeStringResponse("incorrect wrapped key length", 400), nil
 	}
 
-	if req.FileSize <= 0 {
-		return common.MakeStringResponse("fileSize <= 0", 400), nil
-	}
-
-	if req.FileSize > config.MaxFileSize {
-		return common.MakeStringResponse(fmt.Sprintf("contentLength > %d", config.MaxFileSize), 400), nil
+	if req.FileSize <= 0 || req.FileSize > config.MaxFileSize {
+		return common.MakeStringResponse("bad file size", 400), nil
 	}
 
 	if req.Ttl <= 0 {
@@ -49,13 +46,17 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 
 	req.Ttl = time.Now().Add(time.Duration(time.Second) * time.Duration(req.Ttl)).Unix()
 
+	accessKey := common.GeneratePhrase(config.WordsInAccessKey)
+	accessKeyHashBytes := sha256.Sum256([]byte(accessKey))
+	accessKeyHashString := base64.StdEncoding.EncodeToString(accessKeyHashBytes[:])
+
 	zapis := &storage.TajnyZapisDynamoItem{
-		Salt:       req.Salt,
-		AuthToken:  req.AuthToken,
-		WrappedKey: req.WrappedKey,
-		AccessKey:  common.GeneratePhrase(config.WordsInAccessKey),
-		S3Key:      common.GenerateRandomString(config.S3KeyLength),
-		Ttl:        req.Ttl,
+		Salt:            req.Salt,
+		AuthToken:       req.AuthToken,
+		WrappedKey:      req.WrappedKey,
+		HashedAccessKey: accessKeyHashString,
+		S3Key:           common.GenerateRandomString(config.S3KeyLength),
+		Ttl:             req.Ttl,
 	}
 
 	uploadUrl, err := storage.GeneratePresignedPutUrl(zapis.S3Key, req.FileSize)
@@ -71,7 +72,7 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 	}
 
 	return common.MakeJsonResponse(wire.CreateZapisResponse{
-		AccessKey: zapis.AccessKey,
+		AccessKey: accessKey,
 		UploadUrl: uploadUrl,
 	}, 200), nil
 }

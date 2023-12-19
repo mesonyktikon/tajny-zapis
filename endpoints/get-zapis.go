@@ -18,12 +18,11 @@ func GetZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) (*e
 	tollpass, err := tokens.DecryptTollPassJwt(tollpassJwt)
 	if err != nil {
 		logrus.Error(err)
-		return common.MakeStringResponse(err.Error(), 400), nil
+		return common.MakeStringResponse("invalid tollpass", 401), nil
 	}
 
 	if !tollpass.Valid || authToken != tollpass.AuthToken {
-		logrus.Error(err)
-		return common.MakeStringResponse("invalid", 400), nil
+		return common.MakeStringResponse("invalid salt or auth token", 403), nil
 	}
 
 	downloadUrl, err := storage.GeneratePresignedGetUrl(tollpass.S3Key)

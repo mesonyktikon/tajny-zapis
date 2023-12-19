@@ -14,7 +14,7 @@ type CreateZapisResponse struct {
 }
 
 type GetSaltRequest struct {
-	AccessKey string `json:"accessKey"`
+	HashedAccessKey string `json:"accessKey"`
 }
 
 type GetSaltResponse struct {

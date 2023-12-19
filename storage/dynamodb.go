@@ -13,8 +13,8 @@ import (
 )
 
 type TajnyZapisDynamoItem struct {
-	Salt      string `dynamodbav:"salt"`
-	AccessKey string `dynamodbav:"access_key"`
+	Salt            string `dynamodbav:"salt"`
+	HashedAccessKey string `dynamodbav:"access_key"`
 
 	AuthToken  string `dynamodbav:"auth_token"`
 	WrappedKey string `dynamodbav:"wrapped_key"`
@@ -48,24 +48,24 @@ func TryPutZapis(zapis *TajnyZapisDynamoItem) error {
 	return err
 }
 
-func GetZapisOrDummyData(accessKey string) (*TajnyZapisDynamoItem, bool, error) {
-	items, err := fetchFromGSI("access_key-index", "access_key", accessKey)
+func GetZapisOrDummyData(hashedAccessKey string) (*TajnyZapisDynamoItem, bool, error) {
+	items, err := fetchFromGSI("access_key-index", "access_key", hashedAccessKey)
 	if err != nil {
 		return nil, false, err
 	}
 
 	if len(items) > 1 {
-		panic(fmt.Sprintf("access_key-index has more than one item for access_key=%s", accessKey))
+		panic(fmt.Sprintf("access_key-index has more than one item for access_key=%s", hashedAccessKey))
 	}
 
 	if len(items) == 0 {
 		return &TajnyZapisDynamoItem{
-			Salt:       common.GenerateRandomString(config.SaltLength),
-			AccessKey:  accessKey,
-			AuthToken:  common.GenerateRandomString(config.AuthTokenLength),
-			WrappedKey: common.GenerateRandomString(config.WrappedKeyLength),
-			S3Key:      common.GenerateRandomString(config.S3KeyLength),
-			Ttl:        time.Now().Unix(),
+			Salt:            common.GenerateRandomString(config.SaltLength),
+			HashedAccessKey: hashedAccessKey,
+			AuthToken:       common.GenerateRandomString(config.AuthTokenLength),
+			WrappedKey:      common.GenerateRandomString(config.WrappedKeyLength),
+			S3Key:           common.GenerateRandomString(config.S3KeyLength),
+			Ttl:             time.Now().Unix(),
 		}, false, nil
 	}
 

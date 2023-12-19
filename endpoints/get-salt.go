@@ -2,10 +2,10 @@ package endpoints
 
 import (
 	"context"
-	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/mesonyktikon/tajny-zapis/common"
+	"github.com/mesonyktikon/tajny-zapis/config"
 	"github.com/mesonyktikon/tajny-zapis/storage"
 	"github.com/mesonyktikon/tajny-zapis/tokens"
 	"github.com/mesonyktikon/tajny-zapis/wire"
@@ -13,13 +13,13 @@ import (
 )
 
 func GetSalt(ctx context.Context, request *events.LambdaFunctionURLRequest) (*events.LambdaFunctionURLResponse, error) {
-	accessKey := request.QueryStringParameters["accessKey"]
+	hashedAccessKey := request.Headers["x-tajny-zapis-hashed-access-key"]
 
-	if len(strings.Split(accessKey, " ")) < 3 {
-		return common.MakeStringResponse("not enough words in access key", 400), nil
+	if len(hashedAccessKey) != config.HashedAccessKeyLength {
+		return common.MakeStringResponse("incorrect length for hashed access key", 400), nil
 	}
 
-	dynamoItem, valid, err := storage.GetZapisOrDummyData(accessKey)
+	dynamoItem, valid, err := storage.GetZapisOrDummyData(hashedAccessKey)
 	if err != nil {
 		logrus.Error(err)
 		return common.MakeStringResponse("server error", 500), nil
