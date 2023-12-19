@@ -6,6 +6,6 @@ const SaltLength = 44
 const AuthTokenLength = 44
 const WrappedKeyLength = 64
 
-const MaxFileSize = 1024 * 1024 // 1 MB
+const MaxFileSize = 10240 // 10 KB seems like a reasonable start point
 
 const S3KeyLength = 36

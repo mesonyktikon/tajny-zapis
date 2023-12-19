@@ -65,10 +65,10 @@ func MaybePutZapis(zapis *common.TajnyZapisDynamoItem) error {
 }
 
 // Returns dummy data if an item is not found.
-func MaybeGetZapis(accessKey string) (*common.TajnyZapisDynamoItem, error) {
+func MaybeGetZapis(accessKey string) (*common.TajnyZapisDynamoItem, bool, error) {
 	items, err := FetchFromGSI("access_key-index", "access_key", accessKey)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if len(items) > 1 {
@@ -83,10 +83,10 @@ func MaybeGetZapis(accessKey string) (*common.TajnyZapisDynamoItem, error) {
 			WrappedKey: common.GenerateRandomString(common.WrappedKeyLength),
 			S3Key:      common.GenerateRandomString(common.S3KeyLength),
 			Ttl:        time.Now().Unix(),
-		}, nil
+		}, false, nil
 	}
 
-	return items[0], nil
+	return items[0], true, nil
 }
 
 func FetchFromGSI(indexName, partitionKey, partitionValue string) ([]*common.TajnyZapisDynamoItem, error) {
@@ -121,6 +121,20 @@ func GeneratePresignedPutUrl(s3Key string, fileSize int64) (string, error) {
 		Bucket:        aws.String("tajny-zapis"),
 		Key:           aws.String(s3Key),
 		ContentLength: aws.Int64(fileSize),
+	})
+
+	url, err := req.Presign(1 * time.Minute)
+	if err != nil {
+		return "", err
+	}
+
+	return url, nil
+}
+
+func GeneratePresignedGetUrl(s3Key string) (string, error) {
+	req, _ := s3Client.GetObjectRequest(&s3.GetObjectInput{
+		Bucket: aws.String("tajny-zapis"),
+		Key:    aws.String(s3Key),
 	})
 
 	url, err := req.Presign(1 * time.Minute)

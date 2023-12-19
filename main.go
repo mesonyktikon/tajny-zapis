@@ -42,16 +42,21 @@ func handleRequest(ctx context.Context, request *events.LambdaFunctionURLRequest
 	if request.Headers["x-tajnyzapis-cf-auth"] != "1502b061-b4e5-46fa-ae8b-7cfe562d41b1" {
 		return common.MakeStringResponse("unauthorized", 401), nil
 	}
-
 	switch fmt.Sprintf("%s %s", request.RequestContext.HTTP.Method, request.RawPath) {
+
 	case "GET /v1/test":
 		return common.MakeStringResponse(doTest(), 200), nil
-	case "GET /v1/salt":
-		return logic.GetSalt(ctx, request)
+
 	case "POST /v1/zapis":
 		return logic.CreateZapis(ctx, request)
-	}
 
+	case "GET /v1/salt":
+		return logic.GetSalt(ctx, request)
+
+	case "GET /v1/zapis":
+		return logic.GetZapis(ctx, request)
+
+	}
 	return common.MakeStringResponse("unknown method/path", 400), nil
 }
 

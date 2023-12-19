@@ -36,7 +36,7 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 	}
 
 	if req.FileSize <= 0 {
-		return common.MakeStringResponse("contentLength <= 0", 400), nil
+		return common.MakeStringResponse("fileSize <= 0", 400), nil
 	}
 
 	if req.FileSize > common.MaxFileSize {
