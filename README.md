@@ -25,3 +25,14 @@ Here is the design of creating a tajny zapis (secret note).
 Honestly, it is unlikely that I'll draw out the decrypt flow because making
 pretty images for fun takes time, and my time is limited. But who knows,
 perhaps one day you'll return and you'll find it here 😉
+
+## Deploying
+
+I have this in my `.zshrc` and it works well enough.
+```
+function deploy-tajny-zapis () {
+  GOOS=linux GOARCH=arm64 go build -o bootstrap main.go && \
+  zip lambda-handler.zip bootstrap && \
+  aws lambda update-function-code --function-name=tajny-zapis --zip-file fileb://lambda-handler.zip
+}
+```
