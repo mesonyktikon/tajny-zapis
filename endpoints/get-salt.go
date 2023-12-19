@@ -1,13 +1,15 @@
-package logic
+package endpoints
 
 import (
 	"context"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/mesonyktikon/tajny-zapis/common"
+	"github.com/mesonyktikon/tajny-zapis/storage"
+	"github.com/mesonyktikon/tajny-zapis/tokens"
+	"github.com/mesonyktikon/tajny-zapis/wire"
 	"github.com/sirupsen/logrus"
-	"tuffbizz.com/m/v2/common"
-	"tuffbizz.com/m/v2/storage"
 )
 
 func GetSalt(ctx context.Context, request *events.LambdaFunctionURLRequest) (*events.LambdaFunctionURLResponse, error) {
@@ -23,7 +25,7 @@ func GetSalt(ctx context.Context, request *events.LambdaFunctionURLRequest) (*ev
 		return common.MakeStringResponse("server error", 500), nil
 	}
 
-	tollpassJwt, err := GenerateTollPassJwt(&TollPass{
+	tollpassJwt, err := tokens.GenerateTollPassJwt(&tokens.TollPass{
 		Valid:      valid,
 		AuthToken:  dynamoItem.AuthToken,
 		WrappedKey: dynamoItem.WrappedKey,
@@ -35,7 +37,7 @@ func GetSalt(ctx context.Context, request *events.LambdaFunctionURLRequest) (*ev
 		return common.MakeStringResponse("server error", 500), nil
 	}
 
-	return common.MakeJsonResponse(common.GetSaltResponse{
+	return common.MakeJsonResponse(wire.GetSaltResponse{
 		Salt:        dynamoItem.Salt,
 		TollPassJwt: tollpassJwt,
 	}, 200), nil

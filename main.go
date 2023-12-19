@@ -7,8 +7,8 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"tuffbizz.com/m/v2/common"
-	"tuffbizz.com/m/v2/logic"
+	"github.com/mesonyktikon/tajny-zapis/common"
+	"github.com/mesonyktikon/tajny-zapis/endpoints"
 )
 
 var cfAuthHeader string
@@ -27,13 +27,13 @@ func handleRequest(ctx context.Context, request *events.LambdaFunctionURLRequest
 	switch fmt.Sprintf("%s %s", request.RequestContext.HTTP.Method, request.RawPath) {
 
 	case "POST /v1/zapis":
-		return logic.CreateZapis(ctx, request)
+		return endpoints.CreateZapis(ctx, request)
 
 	case "GET /v1/salt":
-		return logic.GetSalt(ctx, request)
+		return endpoints.GetSalt(ctx, request)
 
 	case "GET /v1/zapis":
-		return logic.GetZapis(ctx, request)
+		return endpoints.GetZapis(ctx, request)
 
 	}
 	return common.MakeStringResponse("unknown method/path", 400), nil

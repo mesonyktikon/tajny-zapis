@@ -1,4 +1,4 @@
-package logic
+package endpoints
 
 import (
 	"context"
@@ -7,14 +7,15 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/google/uuid"
+	"github.com/mesonyktikon/tajny-zapis/common"
+	"github.com/mesonyktikon/tajny-zapis/config"
+	"github.com/mesonyktikon/tajny-zapis/storage"
+	"github.com/mesonyktikon/tajny-zapis/wire"
 	"github.com/sirupsen/logrus"
-	"tuffbizz.com/m/v2/common"
-	"tuffbizz.com/m/v2/storage"
 )
 
 func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) (*events.LambdaFunctionURLResponse, error) {
-	var req common.CreateZapisRequest
+	var req wire.CreateZapisRequest
 	err := json.Unmarshal([]byte(request.Body), &req)
 
 	if err != nil {
@@ -22,24 +23,24 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 		return common.MakeStringResponse("malformed body", 400), nil
 	}
 
-	if len(req.Salt) != common.SaltLength {
-		return common.MakeStringResponse(fmt.Sprintf("salt length != %d", common.SaltLength), 400), nil
+	if len(req.Salt) != config.SaltLength {
+		return common.MakeStringResponse(fmt.Sprintf("salt length != %d", config.SaltLength), 400), nil
 	}
 
-	if len(req.AuthToken) != common.AuthTokenLength {
-		return common.MakeStringResponse(fmt.Sprintf("authToken length != %d", common.AuthTokenLength), 400), nil
+	if len(req.AuthToken) != config.AuthTokenLength {
+		return common.MakeStringResponse(fmt.Sprintf("authToken length != %d", config.AuthTokenLength), 400), nil
 	}
 
-	if len(req.WrappedKey) != common.WrappedKeyLength {
-		return common.MakeStringResponse(fmt.Sprintf("wrappedKey length != %d", common.WrappedKeyLength), 400), nil
+	if len(req.WrappedKey) != config.WrappedKeyLength {
+		return common.MakeStringResponse(fmt.Sprintf("wrappedKey length != %d", config.WrappedKeyLength), 400), nil
 	}
 
 	if req.FileSize <= 0 {
 		return common.MakeStringResponse("fileSize <= 0", 400), nil
 	}
 
-	if req.FileSize > common.MaxFileSize {
-		return common.MakeStringResponse(fmt.Sprintf("contentLength > %d", common.MaxFileSize), 400), nil
+	if req.FileSize > config.MaxFileSize {
+		return common.MakeStringResponse(fmt.Sprintf("contentLength > %d", config.MaxFileSize), 400), nil
 	}
 
 	if req.Ttl <= 0 {
@@ -48,12 +49,12 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 
 	req.Ttl = time.Now().Add(time.Duration(time.Second) * time.Duration(req.Ttl)).Unix()
 
-	zapis := &common.TajnyZapisDynamoItem{
+	zapis := &storage.TajnyZapisDynamoItem{
 		Salt:       req.Salt,
 		AuthToken:  req.AuthToken,
 		WrappedKey: req.WrappedKey,
-		AccessKey:  common.GeneratePhrase(common.WordsInAccessKey),
-		S3Key:      uuid.New().String(),
+		AccessKey:  common.GeneratePhrase(config.WordsInAccessKey),
+		S3Key:      common.GenerateRandomString(config.S3KeyLength),
 		Ttl:        req.Ttl,
 	}
 
@@ -63,13 +64,13 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 		return common.MakeStringResponse("failed to generate url", 500), nil
 	}
 
-	err = storage.MaybePutZapis(zapis)
+	err = storage.TryPutZapis(zapis)
 	if err != nil {
 		logrus.Error(err)
 		return common.MakeStringResponse("failed to put item", 500), nil
 	}
 
-	return common.MakeJsonResponse(common.CreateZapisResponse{
+	return common.MakeJsonResponse(wire.CreateZapisResponse{
 		AccessKey: zapis.AccessKey,
 		UploadUrl: uploadUrl,
 	}, 200), nil

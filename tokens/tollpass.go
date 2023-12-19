@@ -1,4 +1,4 @@
-package logic
+package tokens
 
 import (
 	"encoding/hex"
