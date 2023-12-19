@@ -1,0 +1,171 @@
+/********************************
+        theme settings
+*********************************/
+
+/**               [LIGHT MODE]    */ :root {
+  --color: #111;
+  --background-color: #ddd;
+  
+  --highlight: #fff;
+  --highlight-background: green;
+  
+  --table-head1-color: #eee;
+  --table-head2-color: #d5d5d5;
+  --table-head1-background: #333;
+  --table-head2-background: #666;
+  --table-border: 1px solid #333;
+  
+  --p-color: #503822;
+  
+  --link: #001990;
+  --link-underline: #bbb;
+  --link-highlight: green;
+  
+  --footer-color: #333;
+  --footer-background: #bbb;
+}
+
+@media (prefers-color-scheme: dark) { :root {
+  --color: #aaa;
+  --background-color: #000;
+  
+  --highlight: #fff;
+  --highlight-background: green;
+  
+  --table-head1-color: #222;
+  --table-head2-color: #252525;
+  --table-head1-background: #999;
+  --table-head2-background: #777;
+  --table-border: 1px solid #999;
+  
+  --p-color: #b09999;
+  
+  --link: #fda;
+  --link-underline: #000;
+  --link-highlight: #fff;
+  
+  --footer-color: #aaa;
+  --footer-background: #181818;
+}}
+
+/********************************
+      single page app magic
+*********************************/
+
+.page {display: none;}
+.page:target, :not(:has(.page:target)) .page#decrypt {display: block;}
+
+/*    :has() is only widly supported starting late 2023     */
+@supports not selector(:has(.page:target)) {
+  .page {display: block;}
+}
+
+/********************************
+      general layout
+*********************************/
+
+html {
+  font-size: 1.1rem;
+  text-size-adjust: 100%;
+  
+  color: var(--color);
+  background-color: var(--background-color);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+#container {
+  max-width: 50em;
+  padding: 0 2rem;
+  margin: 0 auto;
+  margin-bottom: 2rem;
+}
+
+.page {
+  margin: 0;
+  padding-top: 1rem;
+}
+
+/********************************
+        look and feel
+*********************************/
+
+::selection {
+	color: var(--highlight);
+	background: var(--highlight-background);
+}
+
+p {
+  color: var(--p-color);
+}
+
+a {
+  color: var(--link);
+  text-decoration-color: var(--link-underline);
+}
+
+a:active,
+a:hover,
+a:visited:hover {
+  color: var(--link-highlight);
+}
+
+a:visited {
+  color: var(--link);
+}
+
+code, pre {
+	font-size: smaller;
+	overflow: scroll;
+}
+
+table, td {
+	border: var(--table-border);
+}
+
+th, td {
+	padding: 0.1rem .25rem;
+}
+
+.table-head-1 {
+	color: var(--table-head1-color);
+	background-color: var(--table-head1-background);
+}
+
+.table-head-2 {
+	color: var(--table-head2-color);
+	background-color: var(--table-head2-background);
+}
+
+details h3 {
+	margin: 0;
+	display: inline;
+}
+
+/********************************
+        fixed elements
+*********************************/
+
+.top-and-bottom {
+  color: var(--footer-color);
+  background-color: var(--footer-background);
+  width: 100%;
+  text-align: center;
+  font-size: smaller;
+  padding: .25rem 0;
+}
+
+nav {
+  position: absolute;
+  top: 0;
+  display: flex;
+  justify-content: space-evenly;
+}
+
+footer {
+  position: fixed;
+  bottom: 0;
+}

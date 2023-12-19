@@ -31,8 +31,12 @@ perhaps one day you'll return and you'll find it here 😉
 I have this in my `.zshrc` and it works well enough.
 ```
 function deploy-tajny-zapis () {
-  GOOS=linux GOARCH=arm64 go build -o bootstrap main.go && \
-  zip lambda-handler.zip bootstrap && \
-  aws lambda update-function-code --function-name=tajny-zapis --zip-file fileb://lambda-handler.zip
+  GOOS=linux GOARCH=arm64 go build -o dist/bootstrap main.go && \
+  zip dist/lambda-handler.zip dist/bootstrap && \
+  aws lambda update-function-code --function-name=tajny-zapis --zip-file fileb://dist/lambda-handler.zip
 }
+```
+
+```
+aws s3 sync frontend s3://tajnyzapis.dev
 ```

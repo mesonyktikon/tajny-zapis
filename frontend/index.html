@@ -1,0 +1,1191 @@
+<!doctype html>                                                                     <html lang="en">
+<head><meta charset="utf-8">  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" type="text/css" href="./style.css">                 <title>[Tajny Zapis]</title>
+
+</head>                                                                                       <body>
+<nav class="top-and-bottom">
+<a href="//tuffbizz.com">👈 tuffbizz</a>
+<a href="#encrypt">🔒 encrypt</a>
+<a href="#decrypt">🔓 decrypt</a> 
+<a href="#about">🙋 how it works</a>                </nav>
+
+<div id="container"><!----------------------------------------------------------------------------->
+<!------------------------------------------------------------------------------------------------->
+<div class="page"                                                                       id="encrypt">
+<h1>                                       Encrypt                                          </h1><hr>
+
+<p>
+Currently this displays the result of the encryption. Making the server call is next.
+The call currently blocks for mvp but I plan on offloading the argon2 hashing to a worker.
+<p>
+
+<script>
+window.onload = () => document.getElementById('encrypt-form').addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const submitButton = document.getElementById('encrypt-submit')
+  const plaintext = document.getElementById('encrypt-input-text').value
+  
+  const encryptResult = document.getElementById('encrypt-result')
+  const encryptResultParams = document.getElementById('encrypt-result-params')
+  const createZapisResult = document.getElementById('create-zapis-result')
+  
+  encryptResult.textContent = ''
+  encryptResultParams.textContent = ''
+  createZapisResult.textContent= ''
+  
+  // todo add some loading screen
+  
+  submitButton.disabled = true
+  const res = await new Promise(resolve => setTimeout(() => resolve(encrypt(plaintext)), 1000))
+  submitButton.disabled = false
+  
+  const params = {...res}
+  delete params.passphrase
+  delete params.ciphertext
+  params.fileSize = res.ciphertext.byteLength
+  
+  encryptResult.textContent = JSON.stringify(res, null, 2)
+  encryptResultParams.textContent = JSON.stringify(params, null, 2)
+  
+  const zapis = await createZapis(res)
+  
+  const output = {
+    accessKey: zapis.accessKey,
+    passphrase: res.passphrase,
+  }
+  
+  createZapisResult.textContent = JSON.stringify(output, null, 2)
+})
+</script>
+
+<form id="encrypt-form">
+  <label>
+    Text you want to encrypt:<br>
+    <textarea rows="10" cols="50" id="encrypt-input-text"></textarea>
+  </label><br>
+  <input type="submit" value="submit" id="encrypt-submit" />
+</form>
+
+<p>Result</p>
+<pre id="encrypt-result"></pre>
+
+<p>What will get sent to the server</p>
+<pre id="encrypt-result-params"></pre>
+
+
+<p>The final result (if you see a something here, the s3 upload succeeded)...</p>
+<pre id="create-zapis-result"></pre>
+
+
+<p>
+The server responds with an access key that is used to obtain the note.
+A sha256 hash of the access key is what is sent to obtain the salt for the note.
+A presigned s3 url is also returned. This is where the client will upload the ciphertext to.
+</p>
+
+</div><!------------------------------------------------------------------------------------------->
+<!------------------------------------------------------------------------------------------------->
+<div class="page"                                                                   id="decrypt">
+<h1>                            							Decrypt    																	 </h1><hr>
+
+<form id="decrypt-form">
+  <label>Access Key: <input type="text" rows="10" cols="50" id="decrypt-access-key" /></label>
+  <br>
+  <label>Passphrase: <input type="text" rows="10" cols="50" id="decrypt-passphrase" /></label>
+  <br>
+  <input type="submit" value="submit" id="decrypt-submit" />
+</form>
+
+
+</div><!------------------------------------------------------------------------------------------->
+<!------------------------------------------------------------------------------------------------->
+<div class="page"                                                                        id="about">
+<h1>                                How it Works                                       </h1><hr>
+
+<p>
+Here will be some details regarding how everything works. Hope you enjoy!
+</p>
+
+<p>
+Code for the backend can be found <a target="_blank" href="//github.com/mesonyktikon/tajny-zapis">here</a>.
+</p>
+
+<p>
+Passphrase dictionary contains 7700 (squawk that to get ATC's attention).<br>
+<p>
+
+<p>
+There is a lambda that lives in aws. It keeps metadata in dynamodb and ciphertext in s3.<br>
+</p>
+
+<p>
+DynamoDB partition key is salt and there is a GSI on access_key. The reason salt is the pk
+is because I want to ensure that salts are never reused. I can use the <code>attribute_not_exists()</code>
+condition expression to enforce this.
+</p>
+
+<p>
+Writing the code inside <code>script</code> tags in this html file allows me to do this neat
+trick.
+</p>
+<pre id="peek-peek-code"></pre>
+
+<p>
+I had to write my own base64 encoding and decoding. btoa() requires a valid utf-8 sequence since it
+tries to construct a valid string.
+</p>
+
+<details>
+<summary>The code for the base64 encoding/decoding</summary>
+<pre id="peek-base64"></pre>
+</details>
+
+<details>
+<summary>The code for the library</summary>
+<pre id="peek-tajny-zapis"></pre>
+</details>
+
+<details>
+<summary>How about the dictionary?</summary>
+<pre id="peek-words"></pre>
+</details>
+
+
+
+
+</div><!------------------------------------------------------------------------------------------->
+<!------------------------------------------------------------------------------------------------->
+</div>                                                                           <!-- /container -->
+<footer class="top-and-bottom">      [0x70617765c582]                                      </footer>
+
+<script id="code-base64">
+const symbols = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+const symbolValues = symbols.split('').reduce((acc, val, idx) => {
+  acc[val] = idx
+  return acc
+}, {})
+delete symbolValues['=']
+
+const encode64 = (input) => {
+  if (typeof input !== 'object') throw new Error(`bad type ${typeof input}`)
+  if (input.length === 0) return ''
+  const fullGroups = Math.floor(input.length / 3)
+  const incompleteGroup = (input.length % 3) ? 1 : 0
+  const outputLength = (fullGroups + incompleteGroup) * 4
+  const output = new Uint8Array(outputLength)
+  
+  for (let inIdx = 0, outIdx = 0; inIdx < input.length; inIdx += 3, outIdx += 4) {
+    const remainingBytes = input.length - inIdx;
+    
+    output[outIdx+0] = symbols.charCodeAt( input[inIdx] >> 2 )
+    
+    if (remainingBytes === 1) {
+      output[outIdx+1] = symbols.charCodeAt( (input[inIdx] & 0b11) << 4 )
+      output[outIdx+2] = symbols.charCodeAt(64)
+      output[outIdx+3] = symbols.charCodeAt(64)
+    } else if (remainingBytes === 2) {
+      output[outIdx+1] = symbols.charCodeAt( ((input[inIdx] & 0x03) << 4) | (input[inIdx+1] >> 4) )
+      output[outIdx+2] = symbols.charCodeAt( (input[inIdx+1] << 2) & 0x3f )
+      output[outIdx+3] = symbols.charCodeAt(64)
+    } else {
+      output[outIdx+1] = symbols.charCodeAt( ((input[inIdx] << 4) | (input[inIdx+1] >> 4)) & 0x3f )
+      output[outIdx+2] = symbols.charCodeAt( ((input[inIdx+1] << 2) | (input[inIdx+2] >> 6)) & 0x3f )
+      output[outIdx+3] = symbols.charCodeAt( input[inIdx+2] & 0x3f )
+    }
+  }
+  
+  return (new TextDecoder()).decode(output)
+}
+
+// I'm going to keep the input/output naming convention from encode64 to help in reasoning; this is just an inverse
+const decode64 = (output) => {
+  const v = symbol => {
+    if (symbolValues[symbol] === undefined) throw Error(`bad base64 input ${symbol}`)
+    return symbolValues[symbol]
+  }
+
+  if (typeof output !== 'string') throw new Error(`bad type ${typeof output} must be string`)
+  if (output.length % 4 !== 0) throw new Error('string length needs to be divisible by 4')
+  const paddingBytes = output.endsWith('==') ? 2 : output.endsWith('=') ? 1 : 0
+  const inputSize = Math.floor(output.length * 3/4) - paddingBytes
+  const input = new Uint8Array(inputSize)
+  
+  for (let inIdx = 0, outIdx = 0; inIdx < input.length; inIdx += 3, outIdx += 4) {
+    const remainingBytes = input.length - inIdx;
+    
+    out1 = v(output[outIdx+1])
+    input[inIdx+0] = (v(output[outIdx+0]) << 2) | (out1 >> 4)
+    if (remainingBytes === 1) break;
+    
+    out2 = v(output[outIdx+2]) 
+    input[inIdx+1] = ((out1 & 0xff) << 4) | ((out2 & 0b111100) >> 2)
+    if(remainingBytes === 2) break;
+    
+    input[inIdx+2] = ((out2 & 0b11) << 6) | v(output[outIdx+3])
+  }
+  
+  return input
+}
+</script>
+
+<!-- https://github.com/antelle/argon2-browser -->
+<script src="argon2-bundled.min.js"></script>
+
+<script id="code-tajny-zapis">
+window.wordsPromise = new Promise((resolve, reject) => {
+  window.resolveWords = resolve
+})
+
+const makeTajnyZapis = async () => {
+  const Aes256Gcm = {name: 'AES-GCM', length: 256}
+  const Aes256GcmIv = async (iv) => ({...Aes256Gcm, iv: await iv})
+
+  const words = await window.wordsPromise
+  const randomWord = () => words[Math.floor(Math.random() * words.length)]
+  
+  const textEncoder = new TextEncoder()
+  const textDecoder = new TextDecoder()
+  
+  // IMPORTANT: this cannot handle arbitrary bytes. ONLY use for strings.
+  const stob = s => textEncoder.encode(s)
+  const btos = b => textDecoder.decode(b)
+  
+  const wrapIv = (salt) => sha256(salt, '🎁 🪡')
+  const cipherIv = (salt) => sha256(salt, '🕵 ️💉')
+  
+  const concatBuffers = (...buffers) => {
+    buffers = buffers.map(buff => (typeof buff === 'string' ? textEncoder.encode(buff) : buff))
+    const totalLength = buffers.reduce((acc, buff) => acc + buff.length, 0)
+    const result = new Uint8Array(totalLength)
+    let offset = 0
+    buffers.forEach((buff) => {
+      result.set(buff, offset)
+      offset += buff.length
+    })
+    return result
+  }
+  
+  const sha256 = (...buffers) => crypto.subtle.digest('SHA-256', concatBuffers(...buffers))
+  
+  const randomBytes = (length = 36) => {
+    const array = new Uint8Array(length)
+    crypto.getRandomValues(array)
+    return array
+  }
+  
+  const makePassphrase = (numWords = 4) => {
+    let result = randomWord()
+    for (let i = 1; i < numWords; i++) {
+      result += ` ${randomWord()}`
+    }
+    return result
+  }
+  
+  const deriveSecrets = async (pass, salt) => {
+    const {hash} = await argon2.hash({pass, salt, time: 150, mem: 20480, hashLen: 64, type: argon2.ArgonType.Argon2id})
+    const wrappingKey = await crypto.subtle.importKey('raw', hash.buffer.slice(32, 64), Aes256Gcm, false, ['wrapKey', 'unwrapKey'])
+    return {
+      authToken: encode64(hash.slice(0, 32)),
+      wrappingKey,
+    }
+  }
+  
+  const encrypt = async (plaintext) => {
+    const encryptionKey = await crypto.subtle.generateKey(Aes256Gcm, true, ['encrypt'])
+    const salt = randomBytes(32)
+    const ciphertext = await crypto.subtle.encrypt(await Aes256GcmIv(cipherIv(salt)), encryptionKey, stob(plaintext))
+    
+    const passphrase = makePassphrase(4)
+    const {authToken, wrappingKey} = await deriveSecrets(passphrase, salt)
+    
+    const wrappedKey = await crypto.subtle.wrapKey('raw', encryptionKey, wrappingKey, await Aes256GcmIv(wrapIv(salt)))
+    
+    return {
+      passphrase,
+      salt: encode64(salt),
+      ciphertext,
+      wrappedKey: encode64(new Uint8Array(wrappedKey)),
+      authToken,
+    }
+  }
+  
+  const decrypt = async ({passphrase, salt, wrappedKey, ciphertext}) => {
+    wrappedKey = decode64(wrappedKey)
+    salt = decode64(salt)
+    const {wrappingKey} = await deriveSecrets(passphrase, salt)
+    
+    const encryptionKey = await crypto.subtle.unwrapKey('raw',
+      wrappedKey, wrappingKey, await Aes256GcmIv(wrapIv(salt)), Aes256Gcm, false, ['decrypt'])
+      
+    return btos(await crypto.subtle.decrypt(await Aes256GcmIv(cipherIv(salt)), encryptionKey, ciphertext))
+  }
+  
+  const testEncryption = async (input) => (await decrypt(await encrypt(input))) === input
+  
+  const sanityCheck = async () => {
+    const assert = (condition) => {
+      if (!condition) {
+        console.error('sanity check failed')
+        alert('Sanity check failed! Confidence in security is reduced. Check console for more details.')
+      }
+    }
+  
+    assert(words.length >= 7700)
+    assert(testEncryption())
+    assert(testEncryption(words.join('-')))
+    assert(makePassphrase().length > 20)
+    assert(makePassphrase() !== makePassphrase())
+    
+    const t1 = 'hello world i am supossed to be super secret'
+    const e1 = await encrypt(t1)
+    const e2 = await encrypt(t1)
+    assert (e1.passphrase !== e2.passphrase)
+    assert (e1.salt !== e2.salt)
+    assert (e1.wrappedKey !== e2.wrappedKey)
+  }
+  
+  return {
+    sanityCheck,
+    sha256,
+    encrypt,
+    decrypt,
+  }
+}
+
+console.log('Loading TajnyZapis...')
+makeTajnyZapis().then((tajnyZapis) => {
+  Object.assign(window, tajnyZapis)
+  console.log('TajnyZapis ready.')
+}).catch(err => {
+  console.log(err)
+  alert('TajnyZapis failed to initialize.')
+})
+</script>
+
+<script id="code-api">
+const makeApi = async () => {
+  const createZapis = async ({salt, authToken, wrappedKey, ciphertext} = {}) => {
+    try {
+      if (!salt || !authToken || !wrappedKey || !ciphertext) throw new Error('missing parameter')
+      const res = await fetch('/v1/zapis', {
+        method: 'POST',
+        body: JSON.stringify({salt, authToken, wrappedKey, fileSize: ciphertext.byteLength})
+      })
+      const result =  await res.json()
+      const uploaded = await fetch(result.uploadUrl, {method: 'PUT', body: ciphertext})
+      return uploaded && result
+    } catch (err) {
+      console.log(err)
+      alert('error! check console for details')
+    }
+  }
+  
+  const getSalt = async (accessKey) => {
+    if (typeof accessKey !== 'string') throw new Error('missing string accessKey')
+    const res = await fetch('/v1/salt', {
+      headers: {
+        'x-tajny-zapis-hashed-access-key': encode64(new Uint8Array(await sha256(accessKey))),
+      }
+    })
+    return await res.json()
+  }
+  
+  const getZapis = async ({authToken, tollpass}) => {
+    if (typeof authToken !== 'string' || typeof tollpass !== 'string') throw new Error('missing accessKey or tollpass')
+    const params = new URLSearchParams()
+    params.append('authToken', authToken)
+    params.append('tollpass', tollpass)
+    const res = await fetch(`/v1/zapis?${params.toString()}`)
+    return await res.json()
+  }
+  
+  return {createZapis, getSalt, getZapis}
+}
+
+makeApi().then(api => Object.assign(window, api))
+</script>
+
+<script id="code-words">
+window.resolveWords(`
+sunrise extent closed tenant pockets ladder algeria planet sandwich intensity
+tunes strips finally updated gathered maria villas upcoming files emergency
+cheats airline static conviction egypt advocate athletes objectives downtown readers
+firewall screenshots tracks angel wayne swift barbados australia electron constraints
+housing permit alice noble dealer resorts acoustic extra incidents vacuum
+ensuring petroleum manufactured dresses equipped isaac merit individuals biblical content
+proposals bachelor conspiracy expires tackle deadly renaissance enemies rising novelty
+cherry focused somewhat public portal baptist weights neighbor maryland abstract
+councils abilities friendship compressed anticipated phase donor screening thereafter stats
+microsoft licensed publishing without immunology parental undertaken burning cooperative producing
+implies filename ports clock kenneth leaves situated congratulations knights archived
+latter global ballet roster theft appreciation stack ingredients mardi formerly
+commodity particles bronze reproduction resource brave displayed trademarks edmonton bargain
+despite sustainable utilization prescription revolution uganda questionnaire within nearly pixels
+operating refused associations handbags coaching wizard molecular festivals expanding considers
+pointed infringement flour porter benchmark happening inputs northern removable earning
+humor playback twiki approaches villages caribbean drama breakdown measures cargo
+visits project crossing folders excellence supplies powder madison posted camps
+metres valium enterprise behavior hereby educated smith christopher prior precise
+research ranks reliability intended think balanced committees contractors diameter excerpt
+salary chess honors values fixed scratch fired schools literacy spray
+astronomy billy volkswagen educators remove conflicts service engage answered peace
+rankings peter province beings lawyer confused korea medium britney ceiling
+moscow overseas mixer learned fragrances explains scholar workforce scotland indicates
+suggesting mother formats canal degree pipes savings copyrighted manufacturers auction
+performance pharmacy worship finest licking whale bidding reject chair producers
+changes assure could connectors concepts speed bouquet sentences marriott certain
+sending inkjet friendly interior summit varied combine stones controlling casting
+peninsula panel carnival collectible hungary chile timber scenario jefferson brunette
+navigator agreement geography framing socks unexpected snowboard lovers policies paypal
+everyone specialties colorado sleeps skill universal avoiding bradley inspections newcastle
+things python strange compaq types gently rouge profiles queen blogs
+totals regulation occupied monica regarded attractive bathrooms transit conferences cambodia
+deutsch harris regular modules ranking estimation stories savannah gothic gamespot
+matching appeal infinite kilometers appreciate reduction baseball delaware timing american
+enables islam probe round anaheim conversation varying wrist student camcorders
+repair fruits salvation sequences charges corner excluded questions premium assets
+victor disney recommendations picks birmingham testimony dietary wound terror observation
+facts configurations economic physically drinks paperback outlined realty offered ministry
+entered accommodations rural cornell flights wishlist letter undefined defence recorders
+moving contrast particle wholesale commonly gotten injection correlation immediate creatures
+evaluations lyric infected motherboard prayers south removal document hotmail epinions
+geometry verizon remains alumni subscription current alpha suicide corporate proteins
+fixes briefly instructors bestsellers hilton cigarette exhibits subscriber courage lafayette
+emissions satisfied streams framed arranged something police loving counters modular
+preservation amsterdam areas warren conversations rocks retrieved expired denmark homepage
+monaco tiger mixed switch capitol professional comfortable francis replace antibodies
+documentary enough webpage torture learning generating hours beautifully contain wildlife
+commons viking accepting leaders transferred width creativity parcel foundation mistake
+instructions approve costume votes owner diseases liechtenstein answers bright exceptional
+airports turner online spell arena retained feels travesti amended javascript
+proud cover below fairly steps embedded liked delay campaigns warnings
+saints latina responsibilities insight introduces spring clarke duties strand annual
+about valley minnesota merchants grace nudist science permission podcasts leisure
+billing checks establishing separate apparel check suffering trustee includes literary
+dinner defense impaired journalist indoor unable losing generator reaching protocols
+occasional hazardous management liverpool barely artistic depends windsor germany bracket
+levels cheapest listen vietnam solomon collar custody lance performs rates
+conferencing pharmaceuticals purchased cameras promotional lemon forms dreams michelle awareness
+mobile society accessories enquiry spent endangered advanced connector evaluation pressing
+audience palestinian dennis weight pursuant naples division nissan individually completion
+recipes herein shoulder quiet adjustment agreed incorporated remaining assessments muslims
+interests researcher covered winners gamma along decimal times plugin acting
+currencies broadband austin municipality convention competitive preliminary imports ghana systems
+recovery inspiration suppose availability fabric reasons reference shaft imperial planners
+athletic keith lions altered markers shorter secretary sustained eligible arrange
+derby advancement ticket waters greene devon lunch budgets amendment operators
+gonna scoring essentially asylum discrete notion croatia typical papua specifies
+uniprotkb loans introductory slovakia techniques available satin identity discovery midwest
+casio grown xanax twelve mentioned psychological winning slightly imported swiss
+accessible greensboro conceptual these february thereof eastern major symptoms limitations
+andorra highlight passed quilt approved flags supervisor widespread allocation paste
+monte qualified georgia notices singing proposition shades valves saskatchewan january
+restoration inches entry pepper viewing around greatest largest basis princeton
+posting revisions solving gauge namely albany hammer street vanilla fabrics
+confirmation fundraising jerry worlds assistance brass referenced secretariat subsidiaries selection
+sword causing escape scheduled learn auctions lives fallen officially recruiting
+mortgage physical crystal amounts grenada hockey holds advertisement discussions ourselves
+copyright month jacob summaries subtle hardware sleep enable trails stuffed
+accordance scared encouraging simpson title authority robots applicable heart towards
+jennifer victory characteristics dragon lifestyle harper image plenty hungarian affiliates
+blood monsters beast advisors reseller classification russia stylus henderson fields
+funky followed driving recommended indices trusted maiden departure candidates sheriff
+poems council average extraordinary reservations clinic supposed incident chose duration
+manitoba fully pittsburgh challenge status money skype playing successfully spots
+macromedia parade shell violent downloaded controller belong trainer tucson fitting
+considered unified contests personally username clusters scoop occupation tracking others
+gradually reasonable investments recreational insurance corrections officers readily women entrance
+feeding forward dentists remote statewide wagon nails deeper crafts latex
+omega luther postal honest standing characteristic implied indianapolis jesse encounter
+official deals coffee consoles consultation stranger scenarios attitudes marilyn effort
+motels older optimum disclaimers announce voluntary loaded legendary frozen brain
+final pleasure italiano evaluate sleeping boats presidential author jimmy partners
+bunny salem asthma florida louis forgot brazil nebraska buddy russell
+thickness distributions spirits difficult tiffany sides payroll surround child wrapping
+atlas annie talent penalties edited cheque tried infrastructure potato forbidden
+pillow items include yorkshire closing affair sweden motorola wrestling emperor
+novel workshops processor laboratories quest three administrators screens introduce biggest
+frederick films trunk arabia facial weekend bunch informative plates israeli
+tablets router walked trash carefully success schedules videos manor announced
+previously donations plants secured merger header scientific antarctica spend glasgow
+civilization enabled cologne layers amazing corporations ecuador driver managed registrar
+regulatory producer maintained served reported covers schema possess potter threads
+forum scholarships ranger present social poker enlarge stars spine mattress
+housewares critics related earned court instructor madagascar thick jelsoft failure
+limousines andreas practitioners filters castle pasta promotion skirt controversial viewer
+attention infants anyway joins bingo capital stuck toronto enjoy hitting
+unions vbulletin snapshot christianity already grant specialist statistics identify poster
+telescope integer wrote preparing disciplinary physics copies throughout cancelled panama
+studies largely claire lesser aerospace cancer continually declined participant alexandria
+similarly arrive meets obviously projected incredible reviewed technologies progressive modification
+behavioral internet deutsche artwork recorder rights swedish downloadable transsexual exhibit
+dated taiwan awarded medications baltimore character leasing permanent skating television
+procedure momentum lebanon production explorer florists contains adobe holdings cameron
+collins providers filling demonstrate hundred predicted enhancements rolled prototype supply
+boating principal requirement enormous visitor advert willow grams wheat netscape
+japan clearly bears writers tales craps doctor other consensus temporal
+president milwaukee pills computer salad experiencing democrat constitutes attended trick
+drilling blank suspension const mercedes irish expect carroll deficit silver
+computational bonds relationship advocacy visit manhattan configuring departments participate sites
+grove reform publicity endless polyphonic column advantages russian holding affiliate
+movers unemployment segment newman hepatitis reproductive tuition vector suburban handheld
+mails vocals accurate signal nervous susan competent airport gordon radios
+kennedy protecting forestry existing intake baking yourself horse infections warranty
+justice lamps zones counted investigated physiology position myanmar headers bread
+least appropriate lancaster ranked decades kuwait almost towers optimal fabulous
+marcus approval accountability calculation checked interface twice grants cabinets nation
+plasma player correct waterproof contractor anymore tract rounds infant unnecessary
+nerve versions needs helena cliff gross pitch percent booth pharmaceutical
+supervisors census richard mechanical wherever continue implemented cleaning marketing empty
+workplace flowers markets organisation faculty paint thong prostores chronicle assistant
+choose force useful episodes total promote governing uzbekistan bobby wordpress
+rangers upset aluminum depot drunk walter selective handles certification radar
+brussels morris receive country malpractice excel supports colleges words emission
+politics philosophy defining shield entity programme enjoyed sunday witnesses romania
+strongly reporter bought spending batch actors mostly guidelines strategies cases
+hampton voices guardian platform enters office geology broke driven sigma
+keyboard resources cloudy browse prague celtic figured enlargement direct efficiency
+undertake laptops freelance durham seventh punishment meetup lenses collapse powerful
+likewise hawaiian merchant donated astrology advisor please faith madonna biological
+poland recover picked celebration fresh establish playstation printing continued francisco
+barrier planned santa respiratory travel officials strap blogger reuters carlo
+rules julia stripes elections resume institutions puzzles assembled continues daughters
+acknowledged initial environment males contacts refund builders stuart adjacent steve
+equity extremely nominated jamaica outputs provisions teacher absorption processed priest
+coaches venice according reasoning accident generous narrow guild lucky agriculture
+filled mirrors medication elements technological stroke headset heritage genuine invitation
+console offset comment alliance racial carol merry analyzed flexible surprise
+sacramento itunes announcements french knowledgestorm medical delicious ballot mailto sticky
+watching parameters unwrap operated thompson womens disclosure improved judge solar
+pulse worker directors joseph remedies socket bikini cooper valuation induced
+composite double today roulette conducting short robert courses click bloom
+gloves extreme connection horizon divine ministries forge verse religion cultural
+notification incorporate magnificent commissioner venture candy lighting principle eminem devil
+support evidence heather editors obtained nightmare herbal constant offering saint
+pursuit rivers posts fundamentals modelling applied whose arthritis front resident
+guided marking concerns gravity deleted besides figures programmes antiques modifications
+chrome immigration harbor swaziland capable customized months football extras twist
+zealand label proceedings credit templates logos essay trips worthy coleman
+delivered section dynamic boutique geographical magic catholic refresh established stated
+cleaners morocco holidays verde damage reservation dimension automotive affiliation toolbox
+ignore guaranteed tropical shaved milan habitat speakers niagara incentive electrical
+river manufacturer moved binary between tagged contrary replaced clicks chubby
+homes broadcasting studying nonprofit wanted prince privilege representations movements abroad
+rachel wonderful pages forwarding italia quarter exhaust publications columbia explanation
+royal steam ralph wallpapers patches happy scheduling server handed plane
+broadway contents centuries delhi supporting photos webster visiting invitations developers
+targeted season lakes pearl nevada sampling addressed seems itself diffs
+rider silicon theatre transaction egyptian registered golden results porsche distribution
+center helicopter transcription issued reliable possible oxide assume cartridges emphasis
+adaptive sample dependence readings resort yards arise oregon bahrain jumping
+harmful training retro experience offensive leaving material ruled middle edition
+rotary circuits experimental wisconsin urgent circulation motivation utils darwin prize
+cycles table pairs slave brooklyn famous elder ancient mating managers
+engines original criteria territory matched mercy acknowledge exists conduct traffic
+example uploaded requirements crazy johnson roger vocal described founded sprint
+increased operates first mistress phone completely warner storm turkish reductions
+nutrition testimonials nextel technical superior seattle diary rating throwing repairs
+citizenship fleet england machinery talented envelope pixel coach consecutive norman
+counsel policy shuttle tennessee indian patrol parenting reflections qualify keyword
+perth accounting destination married southwest excited arlington blocking crisis associates
+joining apartment happens intervention authorities lesbians routines trigger malta digit
+mailed gentle martha fails teaches princess satisfaction seeks plans crude
+translated agreements triple mortality disco bedding disposal compromise bruce teeth
+presentation shipped packs rewards projectors occurs copied alive relay achieved
+agenda pushed leader tubes concerning plastics nasdaq incoming shopzilla hiking
+modify rebecca enrolled collectables truck coordinate shade match actual bracelet
+procurement freeware grave stockholm archives commitments reason academy julian lasting
+interviews determined thriller contracts stephanie marie warranties greece bless polish
+soldier lanes tsunami hence selecting finish kingdom outcome found baskets
+responding harmony uniform quickly separation ambient hello chance clerk similar
+andrea gender origins modems christmas presence adopt anytime presently recommendation
+eleven basename brief soundtrack indicate gossip mounted fitness malaysia designation
+minus simulations trainers organize cycle instrumentation damages tones visitors scored
+provided semiconductor halloween arrangement chosen developments buried stainless careful ranging
+passive google exclusive thinkpad ongoing statutes wesley indirect afghanistan outreach
+disable trend strategic radio senior filing locale accommodate transmit harder
+liable troubleshooting albuquerque motorcycles regardless director profile modified discretion define
+arrival periodically corpus sponsorship belle transexual manga passion mason patio
+butterfly marijuana taxation webcam battle hairy affairs glory increases works
+decline tooth sculpture constantly aggregate conventions doing kingston stretch thought
+weather observations fitted dream shots wings stress points weighted optical
+collector sexually downloads interfaces interactions oxford scenic annotated costumes shoppers
+grain float rooms beyond paraguay programmer conditioning substitute privileges intend
+personals colony locations nathan henry mining freeze replica widely consequently
+databases walker cotton remembered focuses controllers database every motor roles
+review awards answering fusion kills human partner serious drawing telecommunications
+supplemental armed tourism vital cheaper battery revenue eating garmin continental
+violin implementing partition crack warehouse variations comes taste volvo targets
+knowing fiction fiscal confirm inclusive guarantee evaluated privacy played remainder
+analyze shore increase vendors remix elderly polymer probability newer patrick
+investigate huntington captain blade frequent seniors footage falling follow height
+vendor trout necklace savage rings mitsubishi polyester overhead drugs constructed
+carbon shown ignored reunion origin tools syria launches serial phillips
+monitoring environmental reading prominent reconstruction legacy given cloud adjustments worry
+mountain proposed distributors field species distributed disease beastality evening properties
+vision singer understand tremendous nigeria istanbul frost booking watts speeches
+hopkins pressure relationships blades north contained applies amanda cosmetics starring
+suggest martial interval looking multiple criminal influenced college marvel harry
+interview cottages musicians growing often tonight vsnet syndicate identification emacs
+senegal making represented substantially harvard nature prices seasonal early continuously
+difficulty landscapes circumstances arabic rugby literally names power grand determining
+banking innovations recipient remarkable assigned mexico substance transparent cadillac documents
+formed combination boxes cyber actions glass elected xhtml periods electric
+interventions continuity loads casinos ireland honduras salaries question glucose update
+rational discusses ferry flash equations marco ratios bodies gives concerned
+chorus shoes olympus diamond dollars activities previous reverse specifications beginning
+treasures praise reviewer verify injured necessity enquiries dirty coastal investor
+charged elite diving prevent nintendo temperature paths hormone traveller settle
+entirely philadelphia cluster thrown hearing championships notebook sagem close nashville
+strengthen demands place holder fossil acute adapters thunder adopted municipal
+permissions dressed unusual walls pushing general musician carry therefore stronger
+lounge phantom appeals inter cookies prisoner volleyball plots climate impose
+animation suffered nodes storage hopefully chest couples connecticut advertisers supplements
+corporation hottest screenshot reputation mutual productions operator directory background eventually
+humanities eligibility satellite delivers travelers shape underwear shapes fares insulin
+residents invited decisions accomplished pumps impact manual juvenile price written
+surveillance subsidiary farming previews raises giant determination dicke auditor strength
+furthermore mention indonesian becomes virtual awesome assess california superintendent legislative
+endorsement launched naval civilian visibility reviewing retail superb livecam cheers
+aruba varieties supported measured botswana download fraser maximize african autos
+haven meaningful camera journalism apnic reporting originally comfort theories guards
+killing rocket mount degrees celebrate prime yukon dublin velocity walks
+americas salvador teaching complex fastest yamaha rapidly detect tries plymouth
+dairy collections joyce nicaragua investigations dolls ethernet grammar terrible regime
+soviet johnny jurisdiction maple adverse howard blogging healing trademark dependent
+cartoon creation scholarship acquisition swing cocktail shakira information debut checkout
+continuous compiler alfred beads blair constitution inside excuse gained engineers
+unity church incurred congress junior explicitly temporarily workflow encouraged spirit
+realized graphical curves barbara fault handling surrey tribal hardly nations
+ronald distant world stopping definitions informed contributions halifax gabriel collaboration
+portion curriculum postings invest regression remember require acquisitions iraqi filtering
+indicated surrounded probably pennsylvania listing worth firmware heights celebrities telephone
+belarus possibilities editorial importance metals safety wines watches consistency republicans
+adaptation finger paris camcorder mario upgrades behind bucks considerations deutschland
+bytes limiting insured queries explore addressing subject clicking ordered yesterday
+reduced garlic spaces coverage phones deaths clips seekers typing miller
+somewhere surface bubble links disciplines induction certificates suits domains dangerous
+together hygiene regards lowest technician chaos committed arguments installation restrictions
+destroyed wrong likes conducted totally return juice deferred simulation initiated
+efficiently albums colin suspected commander foster tribes secondary disputes employees
+visited waiver identifies sharing situations easily sealed agrees creative unlikely
+query polls barry entrepreneurs actually festival anatomy graph louisiana riding
+asked memorial fetish trinidad period appropriations reception cabinet belize chassis
+batteries cream multimedia marketplace agricultural failing foods broadcast movie opposed
+physician charm candles attribute approximately holders basically rendered premiere thermal
+selections affected demand therapist lender texas cholesterol weird restrict holes
+negotiation alter grade cancel revolutionary admissions mental phrase hierarchy burton
+identified discrimination rarely libraries facility favorites jesus slide delivery suite
+profit adoption analog aggressive premier acids rehabilitation sound enterprises cooler
+whenever positions parents britain opponents religious effective formal implementation andale
+marsh complete southeast ebony budget increasingly margaret nasty retirement arrest
+victoria discovered advantage house conservative scuba believes suzuki aluminium inform
+longitude shopper fifty coupled preserve ocean adjust bloomberg transmission synthetic
+ranges exams cursor congo swimming complexity bailey gourmet fifth respond
+count keeps descending afford national mayor british shows stone exclusively
+tablet electronics therapeutic roland prison printers whats boolean thanksgiving really
+suggests cosmetic installing variable invite valuable variables scary federation featuring
+deviant electoral shorts headphones family carries absolutely texts spider risks
+configure department organizer philip segments painted contamination finished melbourne particularly
+preferred sisters granny fridge severe lawrence drinking circle frames enter
+charging chuck courtesy speaks coalition cayman openings shall resist under
+vitamins contest haiti looks binding underlying prayer influences psychiatry carriers
+babes translation honda dynamics descriptions since centers requires comparative parallel
+railway elevation welding spyware entries ampland spectrum specialty guest diagnostic
+moments lightning franklin skirts strictly courts herbs secrets ellen relating
+reader tragedy movies manage appears mazda jackson examples institute renew
+health wichita roots highlighted cordless bills functionality tests metallic brochures
+tribunal those couple element tobacco explosion install uncertainty proved borders
+index renewal factors taylor vertex lesbian elementary tender activated automatic
+beginners strict method syndrome executives collected illustrations springfield keyboards hurricane
+moderator beats drink oxygen latinas smile elvis earrings heaven matter
+wooden nottingham wright earnings countries liberal means logical signup graham
+molecules models samples describe nelson monroe loose watched target keywords
+relying spain state advise buttons drives creating sacrifice stomach postcards
+finder acquire albania chapel would bible describing delivering trading guestbook
+lined picture commissioners tamil transformation studios theater postposted administered traditional
+influence closes angels disclose james estonia grateful dakota fruit grades
+tribe coding porcelain trance fountain assumptions december destinations objective browsing
+cattle local enemy manufacturing introduced tasks eagles users republic fifteen
+bankruptcy deployment roller career voters paragraphs choices partially construct specially
+smell weblog supervision midnight strengthening musical excellent composition sections output
+establishment wednesday invalid financing races portugal voting toolbar explicit learners
+showtimes souls supporters monster advance infectious kidney module shared stanley
+female macro candidate studied alike makes charts wilson philips encoding
+robinson various survivors challenging organizational extending boulevard bookstore firefox cooked
+brick logitech networking optional guilty radiation pending actress environments collecting
+album geographic league mature tongue rendering jungle alias affecting magnetic
+meaning provider authors discussing point welfare achievements squad shares mathematical
+lexus lincoln scope cedar neutral entering shoot fibre italian composed
+healthcare arrow sherman webshots likely scottish chick norwegian watch salon
+northeast noticed century telephony horses logistics nutritional incorrect adult silence
+emerging homeland tracy comparisons paper product seats guides janet bristol
+auburn funny tunisia televisions again sunshine screensaver perception modeling restricted
+observer possession apache gaming decorative changelog gardening brokers announcement concern
+greater belly antique township expansys merely codes offerings legal mounts
+jessica ships syntax ebooks dodge respectively decrease outstanding vegetables indeed
+arrives consisting opinions adjustable opposite produced discs aviation comprehensive sponsored
+virgin apparently condo prevention anime tutorial sales pools appliance singh
+rentals heading gardens vaccine browser termination version wives wales kathy
+energy liberia addition humidity cardiac conflict gallery nutten attend movement
+featured berkeley spiritual rides references smithsonian suppliers create nuclear antigua
+archive crowd color sector upgrade understood omissions escorts daddy students
+slight calling inexpensive tariff assembly masters tomorrow governmental carlos obligations
+regions diane newly coast dallas afterwards somalia improvements statements problems
+nights communication initiative security hostels omaha junction organ organizations individual
+paintball detroit routing textbook hospitality allergy leadership universe lindsay mentor
+cleaner expanded characterization concept survival aspects tramadol systematic finite belkin
+arcade tournament submitting defects tension chains china sandra special pediatric
+initially everywhere devel beatles bridal deemed prozac ending journey sublimedirectory
+buyer emotions futures hispanic retailers standings bleeding atmospheric starsmerchant median
+surprising maybe sheffield respect karaoke combat quarterly simpsons delete bigger
+sunset hollow powell heads campaign aware linked grande hazard tutorials
+webcams highway kentucky expenditure interact billion israel lower converter culture
+partial ascii naughty brought dylan swingers fixtures detailed adrian churches
+italy taking outer oklahoma cuisine chelsea allowance florist during significantly
+consultants replication concerts munich crash predictions essays forming render immune
+headlines royalty understanding compatible ultram spokesman redhead beverly chemistry equilibrium
+address marion sunny compile veteran revised acceptance passenger hosting ensemble
+light responsible streets arrived designated ahead collaborative requiring promises symposium
+relation rubber definition smoke lines tuner minimal hostel atlantic apple
+installed stunning handy chapters years believe recently kodak dayton adventure
+proprietary print meeting feedback chairman focus promoted breast boundaries brian
+crest wallet raymond legally shortcuts aerial worldcat summary submitted there
+saves register rainbow clark prairie relate rolls matters language meter
+louisville recycling priorities rather tommy warrior netherlands obesity lighter successful
+encyclopedia barriers cement accompanied toshiba consist joint solaris appraisal participated
+release buffer chrysler personnel realistic humans formation automobiles worked auckland
+elsewhere onion rebates patient sierra aquarium paperbacks closest lanka roommates
+americans holiday everyday investors alaska mauritius competitions expansion smooth apartments
+property principles measurement complimentary lectures saturday charity tomato explaining licenses
+saturn ordinance rabbit attorney angry including tapes knitting opportunity requests
+stakeholders abraham clothes heard judicial stability glasses visual shadow colored
+saying portions lookup graduated voyuer shame shelter medicaid tripadvisor conditions
+locate amenities components wallpaper sacred trains proof myrtle biology aside
+outlet containers daughter attacked design fewer western moral system compared
+nursing reggae focusing quick manchester endorsed vegetable flying lifetime features
+brings prospect recognize reached prefer sunglasses certainly nurse concluded metabolism
+solid resolutions subcommittee southern harrison lexington jackie kinase sapphire breed
+pupils surgical award engine episode ratings scores latest scholars extensive
+owners fashion viewers academic smaller tower reflected sexual terrorists basin
+softball devoted clara fujitsu domestic stage knowledge webmasters based spanking
+calendar maintain affects imposed capacity efforts america hospital benefit mechanisms
+violations fisher incentives financial kelkoo bizarre argue dispatched humanitarian grocery
+super cathedral populations integration stays lands specialized active vertical heavily
+quote jeans intensive costa offense alert transition seminar marked arbitrary
+reminder meditation irrigation relatively emily applicants accept created helps vegetarian
+thinks ontario attract preston compiled engineering nitrogen historical thumbzilla promising
+passport comparable addiction algorithms experiment conclusion plays commission supplier hungry
+offices assault equally employ shortly until oriented control chemicals declared
+building victorian charlie pontiac exclude flavor trends registry desert concord
+brother piano intelligence veterinary insertion witch cohen zdnet component sonic
+brooks scanned cables essential cookie confidentiality video fellowship elegant ghost
+behalf political approach polished lottery enclosure requesting licence cakes wondering
+absent managing shareholders diversity emotional insights hourly vitamin range millennium
+thesaurus preceding battlefield payday highways owned connect migration mainland suddenly
+lovely operate region communicate evans parish roses burst msgid miracle
+begun olympic greatly labeled facilities recovered warned outdoors hidden applications
+treasure places exotic parks timely export nickel instruments opened williams
+flesh opinion genesis predict start angeles wishing clone coins capabilities
+thomson disturbed montgomery digital defined silent exclusion demanding sudan small
+singles channels published velvet allows compilation magnitude validity container ericsson
+vermont gratuit shakespeare homeless consulting locally nicole asbestos appear metallica
+geological sorry sessions store picking consistently dealt centres blake logan
+karma states profits normally makeup customize contemporary loading amount frame
+dramatically olive direction meters occupations young portrait economies gathering trucks
+appointment worcester especially views following serum peripheral trailers worldwide runtime
+packet vinyl newsletter incidence claim girls ukraine survive turned micro
+tattoo satisfy distances recipe notify korean drill david future split
+exploration mobility champagne plain ringtone entrepreneur chicago burns mandate investing
+participating quotations governance folding highest protect brand avoid limitation waste
+speak convinced arrested vegetation william deliver refers frontpage robertson findarticles
+expected herald gifts dryer trying riverside central hacker headquarters stylish
+journalists exact corners thumbnails editorials second honolulu airfare threat ethnic
+missouri mounting messages login separately instantly thirty moisture hybrid right
+palace posters converted brighton prisoners outcomes employed density messaging specials
+virtually nikon protein spies banks employment brilliant identifier absolute belgium
+liability seconds client rocky packing water medline cameroon strip screen
+barrel courier qatar restaurant third crimes sponsors rapid broad conservation
+reducing frequencies scale trans gadgets european macintosh johns guarantees semester
+microphone photographic powerpoint conversion examinations rebound warrant errors daisy stand
+convertible massage trauma danger class bride adjusted larger buses outsourcing
+editions involves expectations consider laura caring terrorist brake alphabetical access
+herself territories hotel tanks orbit retrieve inbox parameter occurred credits
+hundreds attending heath merchandise mortgages illinois person threatened spouse puerto
+favors czech dealers johnston dedicated cindy cylinder forth cooking vampire
+gamecube leading surgeon required wilderness hills model females beside quantity
+calibration chain wider navigation dialog strain resulted museum committee pantyhose
+speeds nylon attempting cornwall honor symphony seating compression barbie parliamentary
+recognition representative showed unknown toyota clearance debate locator civil grill
+papers colon adapted newspaper retreat numerical accessibility donation vietnamese subscribers
+notified overnight designers running leeds genealogy private installations ended lending
+cruises considering ozone yahoo friend buyers clarity county presentations dispute
+choosing circuit garden tennis prints trackbacks danny assured evaluating stamp
+tight assign became developing vista scientists falls suggested wiring volumes
+continent feeds shirts surgeons helpful responded sydney retailer combining conventional
+primarily dollar currency workstation images developed modem disorder mainstream streaming
+pregnancy figure excessive cheese recreation presenting kerry talks nearby publication
+confidential releases portfolio ecommerce write gilbert radius trackback taxes searching
+desktops cemetery ellis freebsd republican blend personality jokes prompt positioning
+divide align attachments length before derived chase destruction solutions enhancing
+flight calcium thehun michael eight reactions brakes basement venue audit
+stock pleasant neither terrace initiatives message metadata garage findlaw titten
+fleece talking scene fantastic somerset generally chester usage businesses prepared
+kinds plaintiff furnished coming ambien going scales levitra record pencil
+cleanup farmers registration freely distance receipt filter correction cannon however
+better unlimited alcohol broader calculations algebra klein succeed clinton landscape
+analysis ventures structure subdivision flame contributing realize suspended bracelets added
+valid negative translator hearts consideration ensures dimensional appreciated pharmacology obituaries
+exempt crown woman ambassador curtis experts offers titanium games houston
+surgery entitled convicted laptop instance tigers activity bacteria photograph completing
+celebrity routes controls canberra involving hampshire cyprus alternative brandon resolve
+creates palestine portraits indians international reprint framework members sarah consult
+citations popularity destroy stadium anthony beijing settings editing peoples validation
+genre wages leone bangladesh brisbane beginner usual harvey miami ordinary
+matches backed investigator watershed numerous inserted pointing kings although tells
+demonstrated implications nothing hindu programming elect setting compliant simplified punch
+internship chicken constitutional locking safely sterling exemption party factory upload
+winner slowly informal breach angela stands competing mysql fortune expertise
+distinct isolation burlington commented spears professionals coordinator steering reduces mexican
+collection purchases armor investment robust euros perry declare weddings shops
+india finance blink spice samoa operations exports executive economy seminars
+beliefs catalogs revelation accessory token graduation accounts expense combo warriors
+wires medicare chances achievement opening linking intellectual bearing ultimate chargers
+connectivity license retired handhelds developer mobiles forecasts durable expressions columns
+helping cubic oldest shipments pilot scanning pamela witness disagree lauren
+regulations amongst horror missing proxy airlines pictures services christians printer
+spank assisted bernard hotels bases conclusions rehab provides packets tyler
+blocked manufacture aquatic frequency integrating azerbaijan fears reports needle saddam
+agency charleston specific titles posing alien duncan automated gibraltar comic
+supreme vulnerability ethics defendant hollywood wellness fraud speaker ruling contracting
+subjects servers hanging sally samuel jones handmade terms mirror saved
+guinea tradition scott considerable otherwise contributed briefs insulation luxembourg shipping
+toward legends gains draft parker consumers penetration suggestions oliver computers
+anything additionally peeing defend upper enhance floating michigan pendant litigation
+representation sodium condos black refer performances outlets phpbb measure dense
+darkness clinics detection involve slides circus perceived serving vulnerable variation
+receives started explain springs poison temporary autumn program music sparc
+montana sewing harold memory bidder summer function sounds share indicator
+tricks baker designed randy medicine wellington spatial expand prostate spoke
+companies creature galaxy planning rolling opponent liberty mechanics fancy temperatures
+hints tions submissions demonstration estimated vacations bluetooth extensions feelings displays
+decent custom climbing muscle desperate viral highlights birth wanna indicating
+administrative attempted study stewart disability replacement assessed christian bibliographic important
+urban indexes carrying julie participation safari wells sports cincinnati competitors
+farms inventory emirates inquire detector globe divided sandy variance shadows
+listings leave stuff substances hearings turning specified budapest twisted dates
+vegas appointments methods incomplete attractions directly sociology welcome decor niger
+charter precisely bicycle clocks effect memphis reserved brunei fragrance resistant
+subjective decorating butler trivia solve diagram confident motorcycle dosage dominant
+shock prophet testament relocation asking procedures expiration outdoor strike dimensions
+request characterized revenues screensavers continuing gorgeous consistent queensland motel themes
+champions hydrocodone messenger purpose biography blocks christina examining button complications
+towns consequences shepherd university flows robin kenya encourages carpet impression
+amend starts september washington inclusion plaza chevrolet should tunnel allied
+columbus returning shine overcome bedford bookmarks mediawiki threaded virginia submit
+former vienna large arbitration filme conditional sport residence worst maintains
+institutes photographers election chips interference commentary aboriginal context powerseller dying
+estimate estimates tahoe lonely hopes receptor brands investigators asset cross
+filed seemed master discussed intermediate opera tested grass history breathing
+pastor floyd starting connections import symbols publish dealtime historic protest
+drums vintage investigation breaking racks civic cashiers innovative vocational earlier
+drive belfast armstrong canvas yugoslavia newsletters providence projects mysimon wicked
+carrier structural oasis criticism compare thursday allen imaging poultry pirates
+scripts annotation ordering layer accuracy stamps sometimes somebody topic motivated
+boundary relevant processing champion condition activists comply threats tomatoes elephant
+details thumbs favorite knight bolivia schedule steal built lodge alerts
+afraid realm affiliated kitchen strikes babies pokemon qualifying closure located
+independently earth accordingly tournaments counseling macedonia deviation calls treatments aaron
+whatever seller michel cardiovascular blond feeling loved australian maker contacted
+namibia aimed agencies veterans recording striking surname intelligent automobile dispatch
+possibly sublime utility visible freedom prepare brush thing lately alloy
+closer still slovenia chemical persistent myspace cowboy recipients updates cooling
+poetry themselves finishing alternatively missions aberdeen lived ownership religions butter
+expressed receptors nomination murray quantum administration frankfurt harley telecharger publishers
+karen sullivan latvia disabilities intention jewelry happen linear christine forget
+prizes howto treasurer planner antonio stream industrial process mysterious partnerships
+songs efficient morning terminal passage assumed homework arthur brunswick flood
+virtue tampa application arrivals failed photo twenty supplied hosted capability
+accreditation dutch respective tumor arctic extend mercury conjunction response monkey
+familiar newbie instances deputy embassy fatal sticks numeric whilst boring
+removed passwords perfect issue hypothetical reveal sequence disorders comedy style
+textile journals boots empire currently spelling calculators desktop buying quantities
+challenges drops beneath assumption creek admit common ideas sitting thongs
+casual produce belts licensing attempts patients format listprice minimum distinguished
+medal banana bandwidth packaging relief enrollment ideal likelihood tours athletics
+limit perform precision britannica fonts younger marshall channel queue warcraft
+draws interested blame islamic economics tracker welsh contributors holocaust perhaps
+balance crawford forest clubs intranet craft professor adolescent lawsuit german
+algorithm specializing lesson description armenia command penguin believed phoenix transcripts
+delays determine quotes board writes brochure anthropology machine extract prepaid
+fairy confidence fuzzy snake zoning pound hardwood devices powers claimed
+epson teenage diploma angola dental championship assignment bedrooms washer helen
+perspective examination operation architectural fluid xerox orlando subsequent error situation
+pakistan bottle seven hitachi measuring cognitive experiments excluding miscellaneous undergraduate
+reach permits counting concentrate specifically hawaii affect vehicles outlook unsubscribe
+personal textbooks holly sanyo perspectives judges cause rebate awful bottles
+sufficiently finds desire fiber styles configured vessels automatically wireless magical
+indie minds myers consolidated allocated stored amazon arising easier newfoundland
+canada missile genetics associate postcard fighting verzeichnis genetic latin multi
+consultancy stick buffalo antenna recall flower proceeds biographies postage sophisticated
+animated charitable vacation examines farmer hiring education inspection conference donate
+atlanta membrane assessing caused diverse marks reality newport barnes renewable
+extension records sorts nationwide transactions oriental configuration coordinates commissions synopsis
+qualification counts concrete pickup properly centre ratio panic relations dancing
+taken livestock marker revision compute optimize pounds exhibitions group appendix
+printed white slovak people gates metric indonesia folder larry garbage
+stephen shopping viewpicture catalog score winds functional getting computed sectors
+watson attach single prove painful delegation trained charming laboratory rwanda
+deadline salmon purchasing mailing preference dozens never reasonably screw sorted
+zimbabwe stores rejected skiing handbook colonial flexibility adequate gentleman pride
+april exercise chronicles gasoline curious delta carter compensation working italic
+began lauderdale newest consciousness equipment houses tuesday growth received organic
+diesel favor cookbook generators missed potentially performer actor victim pattern
+sleeve msgstr lease chairs encountered sperm attached discipline district settlement
+senator arizona lover approx spotlight patterns apollo dividend husband possibility
+struggle intent accommodation deluxe editor planes transport gerald bulletin prefix
+provision action rhode except delayed hughes valve happiness anywhere above
+tactics admin diabetes carmen touched clearing classes restructuring terry genome
+maritime violation separated shelf guatemala tough moment evolution company object
+makers decided relaxation corresponding kernel betting routers instructional quantitative sponsor
+latitude throat romantic detail bathroom infrared processors bryant organized signals
+morrison brothers toolkit represents inspired pathology decreased internationally democratic cellular
+plant birds reprints logic bishop stocks preview skins qualifications rough
+conclude diamonds stereo shipment bored waiting classroom improve retrieval troops
+programs generate guitars night valued raising station planets unfortunately characters
+route further cents catch generated roberts beach dishes bonus zshops
+wiley threatening aircraft basket portable press appearance boards museums concert
+companion directive alabama terminals effectively purposes dealing earthquake monitors employers
+receivers madness manuals modern sharp regularly story redeem resolution lycos
+sixth trader obligation closely hamburg boost nokia follows propose preferences
+track mitchell brazilian somehow precious teachers galleries intro hansen existed
+fishing worse exist tourist bench biotechnology beautiful square hewlett methodology
+depending acdbentity restored shirt grows advisory minolta minutes village accepted
+exposure plains voice hosts lucia prospects cingular katrina scotia eclipse
+indexed returns different promotions placement lyrics quebec bennett authentication discuss
+frank hoped graphic raise recommend deposit enhancement certificate solved muslim
+pensions packard glenn orange argued giants truth block examine classical
+options enzyme apparent beaches olympics acrobat intervals great takes architect
+chris gnome soldiers reliance illustrated lithuania routine goods philippines signatures
+massive clean anchor imagination sensors stayed administrator referring boxing honey
+atomic whether expensive keeping jenny downloading subsection killed monday douglas
+sheep simultaneously disabled scenes bowling ceremony thereby moldova atmosphere biodiversity
+thank persons phases mozilla bumper pulling debug miles exhibition europe
+become namespace discounted natural relevance techno books kenny having appearing
+specifics articles craig founder seriously pledge divorce while traveling pregnant
+chronic sells collectibles milton knives thoughts software mongolia travis sympathy
+truly transfer organizing transcript english podcast polar sheets hobbies millions
+perfectly shannon mouse convenience touch argument outside muscles trailer destiny
+occasionally minor pollution strings casey reservoir fatty runner magazines resistance
+opportunities linux birthday wheels liver adams solution refined geneva being
+stood observe sussex unavailable promoting actively yellow provincial scanner drain
+entire partnership petition computation kitty arbor roughly fence benefits stages
+guyana statute cabin photoshop criterion bargains coupons hometown longest contacting
+thousands nobody coated hydraulic absence permitted inappropriate realtor yield camel
+coupon supplement shooting speaking hypothesis liquid injuries phentermine mandatory manager
+parliament removing begin specification website disposition trust columnists architecture timer
+writer tiles apply decade critical connecting morgan advertisements dozen reserve
+might mighty beans paying template districts tribune hunter comics events
+aging programmers eagle jewellery needed coordinated treated clinical heated temple
+particular calendars designs bhutan volunteers refrigerator nowhere effects ribbon freight
+eugene throws paintings enforcement exception unique taught practical commitment harvest
+societies november challenged pottery footwear samsung specialists rescue nvidia colleague
+independent stolen attendance definitely offer peaceful enclosed firewire nascar voted
+jewel suites borough practitioner coral daily synthesis accent petersburg nancy
+powered regard marine mileage knife cartridge networks maintenance textiles approximate
+researchers briefing achieving propecia chancellor abuse yemen stanford bottom advertiser
+alone london meyer doctrine wikipedia sharon proportion graphs launch kinda
+restriction becoming infection minerals collectors fought medicines units erotica referred
+slideshow invision graduates debian clouds suggestion surrounding survey quality wired
+household trees looked grounds search frontier wants generates venezuela tissue
+commercial banners detective fraction betty facilitate antivirus cartoons source rogers
+blues interstate accompanying mechanism authentic mistakes mambo dining forbes thesis
+griffin exchanges payments wealth directories diego sauce compound cities realtors
+plugins bringing mariah mastercard fantasy empirical traveler piece replacing equal
+testing furnishings alexander issues deposits nested bikes introducing maximum chief
+fioricet matthew protective pocket lloyd chart burden playlist beneficial compounds
+badly operational librarian upgrading fundamental surveys shareware execute drawn asian
+though fighter gazette decision titans assignments brutal phrases invisible allowed
+occurring cancellation insects memorabilia bookings uruguay development orientation cricket bound
+fathers bizrate interim conscious identifying provinces scientist patents sister amber
+lexmark cells trade corrected breeding warming lessons expert construction accidents
+develops publicly shake statutory graphics giving another wishes quizzes smallest
+hyundai accessing impressive relax treatment architects lights bureau joined threshold
+sheer united trial placing proper trusts politicians chocolate cambridge boulder
+bedroom longer beauty seeds rotation meant declaration coating improvement military
+glossary flyer berlin annually trinity leads plastic untitled hamilton photographs
+tolerance colleagues appliances roommate ecological ferrari genius concentration lists switching
+permalink electricity joshua telecom studio attraction theme gateway thinking funded
+balloon accessed advertising cardiff yeast constitute artist bother break saving
+breakfast compatibility dried classifieds latino portuguese essentials webmaster banned bridges
+jason roads respondent colombia theoretical eliminate charger hartford theology showers
+settled norfolk functions requested raleigh periodic baths offline analyst build
+dressing improving touring organisms representing blackjack fotos dictionaries generation extended
+blanket disks charlotte business bring loves parts flush increasing sensitivity
+trace institution internal pieces amateur presented machines mississippi mpegs cassette
+flashing complaint searched sellers enabling intense depth contribute blackberry expenditures
+donald loops thumb leonard array gibson signed kazakhstan argentina toddler
+percentage introduction romance faster packed reynolds reflect specify plumbing convergence
+fellow desirable brook smilies consolidation alternate unsigned demographic wagner healthy
+mapping george complaints lambda children justify adelaide florence marina computing
+yours answer bacon climb objects string alberta recognized vessel lingerie
+ashley bosnia judgment resumes canon comparing guitar humanity moderate recordings
+labor icons subaru because ministers victims catalogue chinese reproduced involved
+purchase notre wisdom comparison thorough weapon native laundry wedding allowing
+collect classified purse attributes combinations himself edward diana pizza literature
+penny barcelona massachusetts elliott beaver placed respected hobby securities deborah
+citizen workout directed acres pichunter pierre weblogs inherited containing employee
+symbol knock poverty siemens differently interest terminology indicators chicks racing
+pricing acceptable cradle appointed attack calculated badge projector amino soccer
+aspect confirmed submission schemes universities focal journal arrangements certified tractor
+margin independence hazards minneapolis thanks distinction tanzania denied underground headed
+finances bands exactly additional andrew woods covering mathematics blowing creator
+transportation exterior protection engaged newark resulting idaho governments therapy heater
+moreover weeks communities substantial remark backup guests reproduce fighters berry
+regional abstracts wonder projection importantly bulgaria chambers jackets parent evident
+nevertheless belief essex straight photographer specs france comments railroad portland
+income stations relative performing valentine sends standard passengers peers minimize
+cards limited writing script listening davidson cisco floors charles viruses
+smart switched goals foundations forums cable input greek window recruitment
+cigarettes external greenhouse media oracle choir legislature lawyers drainage normal
+resolved spreading suspect occur curve train congressional session accurately gather
+mineral gambling spare jonathan differential queens denver defines workers retention
+kruger colors drove banner basketball magazine menus mozambique pubmed treaty
+theorem assuming yields unauthorized citation teach mixture revealed meetings builds
+struck blind trustees carey prediction trail jersey toilet organisations qualities
+spencer calculator assist sitemap change alpine referrals stable interpreted proposal
+bufing speech sheet affordable earliest assumes engineer disappointed pierce fireplace
+premises higher leather jerusalem flickr puppy interaction flooring adults distributor
+passing staying friday triumph doors replied circular players occasion terrorism
+thats productivity forever accredited pursue warning surplus inquiries metropolitan refuse
+constraint steven magnet greetings revenge southampton burner attempt roman generic
+robbie priced breath browsers payable island cialis clear justin detected
+ability stupid precipitation illegal monitored intel fires modes determines breeds
+mixing demonstrates trades begins reduce industry member luxury nursery clause
+reveals provide preparation hunting treasury athens marble naked scout mission
+generations angle riders unless panels moves basics acquired ricky peripherals
+vernon mothers louise integrated hunger lotus catering cultures interesting tobago
+pointer maine deeply mustang pleased camping westminster analytical mailman injury
+democracy bahamas notifications elimination little mouth verbal quarters housewives designing
+windows excitement reply subsequently existence counter consumer eternal relatives catherine
+wheel controversy classic consists backing surfing population surely instrument afternoon
+sender legend cinema anger pharmacies centered prohibited admission reporters positive
+proudly frequently maternity stickers techrepublic majority mcdonald firms explained slope
+factor whole iceland involvement annoying ridge choice advice simon adware
+physicians matrix opposition rally minority across nominations winston neural everybody
+abortion seeker appeared reflection ready instruction motion location reaches prospective
+patch anybody developmental proceed moderators walnut vacancies navigate holland reload
+through selected lucas anyone bookmark volume consent traditions implement jordan
+indiana sentence survivor oakland config union thousand winter damaged setup
+languages sense cached advised commerce syndication terrain digest report highs
+diagnosis forty thomas pentium potential kijiji structured protected sciences floor
+withdrawal overview notes employer penalty varies association gospel suffer turkey
+northwest buildings orchestra paragraph checklist category carried naturally startup sustainability
+timothy theaters disaster discussion securely remedy partly catalyst intimate device
+performed retain triangle applying burke richardson labels spoken nepal library
+participants norton builder transmitted senators bridge treat exchange contribution jeremy
+vocabulary edwards representatives topics agent connected publisher faces kansas unlike
+beverage fourth listed commands furniture hoping hayes stopped equality spirituality
+hired rebel persian transfers walking execution sticker changing discover medieval
+extends announces instrumental rover soonest spectacular merge effectiveness level stops
+davis usually helmet shower amplifier garcia harassment amendments domain hospitals
+edges pants pavilion proceeding cutting controlled expedia norway package rental
+rochester murphy washing rapids groundwater entertainment backgrounds brown families confusion
+significance laughing impossible authorization losses moore expenses switzerland greeting quite
+caution thumbnail clothing subscriptions sudden pulled neighbors problem virus corps
+cloth donors included linda desired creations newton paxil phenomenon customs
+lying transparency executed receiving stake preventing richmond correspondence narrative uncle
+springer promise named government obtain guard august clients illness baseline
+weekends toxic compact advertise noise recorded patricia protocol bibliography radical
+maldives industries tired locks exposed hudson referral pacific consequence personalized
+organization viewed manually monitor educational products animals residential suitable shaped
+refine complement cumulative manner discount candle killer neighborhood ebook statement
+refurbished pioneer defensive novels dramatic reward processes mainly guess anderson
+ceramic describes notice cruise fingers butts insert relates zoloft gregory
+perfume disclaimer addresses sufficient among weapons highland graduate verified fight
+dubai households yearly article glance ensure offshore wrapped course inner
+value analysts abandoned zambia several immediately bones sbjct differ commit
+drawings peterson necessarily structures secure bloggers instant antibody defeat avatar
+promised seeking outline signing green updating recent tires bullet secret
+mills proven innovation monetary interracial utilize metro holmes vehicle innocent
+guidance sized bermuda analyzes sensor illustration contract heavy raised fascinating
+saudi wyoming difference sailing fisheries showing handled nurses horizontal oscar
+exploring variety attacks japanese jaguar titled communications formula repeated andrews
+represent rated experienced aurora pretty treating responsibility negotiations crops where
+sources ladies standards groove productive puzzle select institutional blacks sugar
+benjamin attorneys calgary tulsa examined school mediterranean forests reset heating
+exciting their africa discharge martin insider serves restaurants transexuales petite
+corruption extraction steel daniel associated workshop finland duplicate christ wallace
+nickname convenient minute letting paradise categories pipeline beverages indication completed
+depression simple locked happened forces stating invention electro quoted chamber
+orleans impressed syracuse depend jacksonville obvious jamie surprised spanish develop
+ultimately option calvin eddie doctors numbers equation random exceed space
+travelling waves mumbai scanners inline promo saver teens seasons smoking
+encourage franchise encryption consultant divisions bradford carolina murder bundle democrats
+regarding ethical branch miniature contact silly default respondents motors achieve
+fever blast obtaining sizes widescreen feature tokyo emerald designer wendy
+montreal functioning canadian cleared nationally jeffrey singapore orders websites entertaining
+circles legislation replies booty staff genres floral ivory directions estates
+tables death anonymous derek crucial formatting receiver finding prerequisite childrens
+remarks allah mountains cycling number attachment lecture shanghai groups panasonic
+ottawa living funding plate imagine potatoes handle order million priority
+boston heroes vatican denial mines chapter network doubt facing stevens
+serbia inquiry whereas discounts campbell turbo evanescence elizabeth luggage newspapers
+ecology marathon integral advances trouble engaging samba copying slots adapter
+arnold floppy bryan practices serve solely citizens theta cooperation broken
+classics edinburgh guide assists katie invoice series spread scripting surfaces
+sexuality violence dropped entities kelly documentation interactive ringtones impacts texture
+crime foreign capture edgar profession laden causes vancouver express prefers
+expression coordination measurements caught batman progress pressed platforms bacterial sphere
+which identical meanwhile sought metal purple counties occasions equivalent informational
+myself webcast kevin correctly known donna charms cheat horrible opens
+jewish either promotes notebooks customers regulated funds nearest account automation
+austria march liabilities attitude scroll result fairfield simply teddy signature
+folks yacht patent someone timeline meals dating laugh translations presents
+endif consumption subscribe wanting microwave friends exceptions sensitive lopez technique
+immigrants governor lewis passes adipex blonde richards optimization overall drivers
+kissing agree branches sucking remind gotta ought competition interpretation lightweight
+leslie accomplish ranch danish jacket inflation genes acrylic copper portsmouth
+communist talked adaptor differences providing symantec excess naturals minister prescribed
+false artists twins occurrence sweet anniversary refugees worried voyeurweb commodities
+crossword vault weekly restore dictionary albert throw captured observed tuning
+legitimate inspector nirvana failures experiences distribute arkansas senate reaction dover
+photography allan easter annex invasion teams selling composer surge layout
+always reserves assurance reads celebs islands sporting pension using ethiopia
+limits airplane enjoying caroline expects tribute practice seeing emails strengths
+event rhythm volunteer logging claims faced enhanced ground membership signs
+versus shark engagement essence integrity broker picnic strong seafood robot
+safer ultra showcase password convert reforms display steady laser alarm
+holdem nightlife parties alleged youth monthly utilities dress promptly necessary
+activation everything nicholas cache apart materials accused refinance after satisfactory
+october childhood against looksmart dialogue contributor campus writings electronic occupational
+trembl assessment flashers baghdad forgotten repeat headline belongs lenders indigenous
+tears thread unlock findings tracked adidas apparatus wearing dominican searches
+later scheme significant reflects lodging knows midlands willing border compliance
+animal applicant instead hydrogen parking collective malawi primary thoroughly girlfriend
+melissa memories customer produces exercises authorized charge noted remain skills
+funeral venues logged hands checking adventures forced finnish combined decide
+strategy officer translate complicated bulgarian skilled canyon basic thailand changed
+stationery additions palmer mystery commonwealth careers repository popular lobby integrate
+reviews hebrew breaks statistical documented optics cottage anxiety allow difficulties
+theory remained dance intersection finals consortium highly avenue academics painting
+recommends madrid shift platinum villa stockings citysearch psychology travels adding
+suited father delight telling compete deserve putting federal granted hardcover
+lightbox bangkok typically voltage habits cheap combines turtle transform copyrights
+gratis helped boxed audio payment displaying returned released maintaining alignment
+trials staffing concentrations responses casino moses agents tickets market turns
+email letters blessed starter toner technology alternatives sight isolated estate
+marriage printable accepts calculate forecast cleveland departmental costs landing chevy
+called packages cited switches community artificial struct vincent verification admitted
+`.trim().split(/\s+/).filter(Boolean))
+
+</script>
+
+<script id="code-peek-code">
+const getById = id => document.getElementById(id)
+const showCode = id => getById(`peek-${id}`).textContent = getById(`code-${id}`).textContent
+;['tajny-zapis', 'base64', 'peek-code', 'words'].forEach(showCode)
+
+</script>
+
+</body>                                                                                      </html>
