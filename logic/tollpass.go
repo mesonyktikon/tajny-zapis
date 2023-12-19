@@ -7,23 +7,24 @@ import (
 
 	"github.com/go-jose/go-jose/v3"
 	"github.com/go-jose/go-jose/v3/jwt"
-	"tuffbizz.com/m/v2/common"
 )
 
-var secret string
-
-func init() {
-	secret = os.Getenv("TOLLPASS_SECRET")
-	if len(secret) != 64 {
-		panic("TOLLPASS_SECRET must be 64 characters long")
-	}
+type TollPass struct {
+	Valid      bool   `json:"valid"`
+	WrappedKey string `json:"wrappedKey"`
+	AuthToken  string `json:"authToken"`
+	S3Key      string `json:"s3Key"`
 }
 
 var key []byte
-
 var enc jose.Encrypter
 
 func init() {
+	secret := os.Getenv("TOLLPASS_SECRET")
+	if len(secret) != 64 {
+		panic("TOLLPASS_SECRET must be 64 characters long")
+	}
+
 	key = make([]byte, 32)
 	_, err := hex.Decode(key, []byte(secret))
 	if err != nil {
@@ -48,7 +49,7 @@ func init() {
 	enc = enc_
 }
 
-func GenerateTollPassJwt(tollPass *common.TollPass) (string, error) {
+func GenerateTollPassJwt(tollPass *TollPass) (string, error) {
 	now := jwt.NumericDate(time.Now().Unix())
 	exp := jwt.NumericDate(time.Now().Add(time.Minute).Unix())
 	claims := jwt.Claims{
@@ -57,26 +58,16 @@ func GenerateTollPassJwt(tollPass *common.TollPass) (string, error) {
 		NotBefore: &now,
 		Expiry:    &exp,
 	}
-
-	token, err := jwt.Encrypted(enc).Claims(claims).Claims(tollPass).CompactSerialize()
-	if err != nil {
-		return "", err
-	}
-
-	return token, nil
+	return jwt.Encrypted(enc).Claims(claims).Claims(tollPass).CompactSerialize()
 }
 
-func DecryptTollPassJwt(token string) (*common.TollPass, error) {
+func DecryptTollPassJwt(token string) (*TollPass, error) {
 	t, err := jwt.ParseEncrypted(token)
 	if err != nil {
 		return nil, err
 	}
 
-	var tollPass common.TollPass
+	var tollPass TollPass
 	err = t.Claims(key, &tollPass)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tollPass, nil
+	return &tollPass, err
 }

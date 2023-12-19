@@ -8,18 +8,17 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"tuffbizz.com/m/v2/common"
 	"tuffbizz.com/m/v2/storage"
 )
 
 func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) (*events.LambdaFunctionURLResponse, error) {
-	if request.IsBase64Encoded {
-		return common.MakeStringResponse("base64 encoded request body not supported", 400), nil
-	}
-
 	var req common.CreateZapisRequest
 	err := json.Unmarshal([]byte(request.Body), &req)
+
 	if err != nil {
+		logrus.Error(err)
 		return common.MakeStringResponse("malformed body", 400), nil
 	}
 
@@ -49,30 +48,29 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 
 	req.Ttl = time.Now().Add(time.Duration(time.Second) * time.Duration(req.Ttl)).Unix()
 
-	accessKey := common.GeneratePhrase(common.AccessKeyWords)
-	s3Key := uuid.New().String()
-
-	dynamoItem := common.TajnyZapisDynamoItem{
+	zapis := &common.TajnyZapisDynamoItem{
 		Salt:       req.Salt,
-		AccessKey:  accessKey,
 		AuthToken:  req.AuthToken,
 		WrappedKey: req.WrappedKey,
-		S3Key:      s3Key,
+		AccessKey:  common.GeneratePhrase(common.WordsInAccessKey),
+		S3Key:      uuid.New().String(),
 		Ttl:        req.Ttl,
 	}
 
-	uploadUrl, err := storage.GeneratePresignedPutUrl(dynamoItem.S3Key, req.FileSize)
+	uploadUrl, err := storage.GeneratePresignedPutUrl(zapis.S3Key, req.FileSize)
 	if err != nil {
-		return common.MakeStringResponse(err.Error(), 500), nil
+		logrus.Error(err)
+		return common.MakeStringResponse("failed to generate url", 500), nil
 	}
 
-	err = storage.MaybePutZapis(&dynamoItem)
+	err = storage.MaybePutZapis(zapis)
 	if err != nil {
-		return common.MakeStringResponse(err.Error(), 500), nil
+		logrus.Error(err)
+		return common.MakeStringResponse("failed to put item", 500), nil
 	}
 
 	return common.MakeJsonResponse(common.CreateZapisResponse{
-		AccessKey: dynamoItem.AccessKey,
+		AccessKey: zapis.AccessKey,
 		UploadUrl: uploadUrl,
 	}, 200), nil
 }

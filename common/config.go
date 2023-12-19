@@ -1,6 +1,6 @@
 package common
 
-const AccessKeyWords = 3
+const WordsInAccessKey = 3
 
 const SaltLength = 44
 const AuthTokenLength = 44

@@ -2,10 +2,10 @@ package logic
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/sirupsen/logrus"
 	"tuffbizz.com/m/v2/common"
 	"tuffbizz.com/m/v2/storage"
 )
@@ -17,23 +17,22 @@ func GetSalt(ctx context.Context, request *events.LambdaFunctionURLRequest) (*ev
 		return common.MakeStringResponse("not enough words in access key", 400), nil
 	}
 
-	dynamoItem, valid, err := storage.MaybeGetZapis(accessKey)
+	dynamoItem, valid, err := storage.GetZapisOrDummyData(accessKey)
 	if err != nil {
-		return common.MakeStringResponse(err.Error(), 500), nil
+		logrus.Error(err)
+		return common.MakeStringResponse("server error", 500), nil
 	}
 
-	tollpass := common.TollPass{
+	tollpassJwt, err := GenerateTollPassJwt(&TollPass{
 		Valid:      valid,
-		WrappedKey: dynamoItem.WrappedKey,
 		AuthToken:  dynamoItem.AuthToken,
+		WrappedKey: dynamoItem.WrappedKey,
 		S3Key:      dynamoItem.S3Key,
-	}
+	})
 
-	fmt.Printf("[get-salt] generating tollpass: %+v\n", tollpass)
-
-	tollpassJwt, err := GenerateTollPassJwt(&tollpass)
 	if err != nil {
-		return common.MakeStringResponse(err.Error(), 500), nil
+		logrus.Error(err)
+		return common.MakeStringResponse("server error", 500), nil
 	}
 
 	return common.MakeJsonResponse(common.GetSaltResponse{

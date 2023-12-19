@@ -21,3 +21,7 @@ when time and desire permit, I like to draw on the computer.
 
 Here is the design of creating a tajny zapis (secret note).
 ![](encrypt.drawio.svg)
+
+Honestly, it is unlikely that I'll draw out the decrypt flow because making
+pretty images for fun takes time, and my time is limited. But who knows,
+perhaps one day you'll return and you'll find it here 😉

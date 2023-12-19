@@ -41,9 +41,7 @@ func numberAttribute(num int64) *dynamodb.AttributeValue {
 }
 
 func MaybePutZapis(zapis *common.TajnyZapisDynamoItem) error {
-	conditionExpression := "attribute_not_exists(salt)"
-
-	input := &dynamodb.PutItemInput{
+	_, err := ddb.PutItem(&dynamodb.PutItemInput{
 		Item: map[string]*dynamodb.AttributeValue{
 			"salt":        stringAttribute(zapis.Salt),
 			"access_key":  stringAttribute(zapis.AccessKey),
@@ -53,19 +51,13 @@ func MaybePutZapis(zapis *common.TajnyZapisDynamoItem) error {
 			"ttl":         numberAttribute(zapis.Ttl),
 		},
 		TableName:           aws.String("tajny-zapis"),
-		ConditionExpression: aws.String(conditionExpression),
-	}
-
-	_, err := ddb.PutItem(input)
-	if err != nil {
-		return err
-	}
-
-	return nil
+		ConditionExpression: aws.String("attribute_not_exists(salt)"),
+	})
+	return err
 }
 
 // Returns dummy data if an item is not found.
-func MaybeGetZapis(accessKey string) (*common.TajnyZapisDynamoItem, bool, error) {
+func GetZapisOrDummyData(accessKey string) (*common.TajnyZapisDynamoItem, bool, error) {
 	items, err := FetchFromGSI("access_key-index", "access_key", accessKey)
 	if err != nil {
 		return nil, false, err
@@ -109,11 +101,7 @@ func FetchFromGSI(indexName, partitionKey, partitionValue string) ([]*common.Taj
 
 	var items []*common.TajnyZapisDynamoItem
 	err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &items)
-	if err != nil {
-		return nil, err
-	}
-
-	return items, nil
+	return items, err
 }
 
 func GeneratePresignedPutUrl(s3Key string, fileSize int64) (string, error) {
@@ -122,13 +110,7 @@ func GeneratePresignedPutUrl(s3Key string, fileSize int64) (string, error) {
 		Key:           aws.String(s3Key),
 		ContentLength: aws.Int64(fileSize),
 	})
-
-	url, err := req.Presign(1 * time.Minute)
-	if err != nil {
-		return "", err
-	}
-
-	return url, nil
+	return req.Presign(1 * time.Minute)
 }
 
 func GeneratePresignedGetUrl(s3Key string) (string, error) {
@@ -136,11 +118,5 @@ func GeneratePresignedGetUrl(s3Key string) (string, error) {
 		Bucket: aws.String("tajny-zapis"),
 		Key:    aws.String(s3Key),
 	})
-
-	url, err := req.Presign(1 * time.Minute)
-	if err != nil {
-		return "", err
-	}
-
-	return url, nil
+	return req.Presign(1 * time.Minute)
 }

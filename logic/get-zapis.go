@@ -2,9 +2,9 @@ package logic
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/sirupsen/logrus"
 	"tuffbizz.com/m/v2/common"
 	"tuffbizz.com/m/v2/storage"
 )
@@ -15,22 +15,19 @@ func GetZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) (*e
 
 	tollpass, err := DecryptTollPassJwt(tollpassJwt)
 	if err != nil {
+		logrus.Error(err)
 		return common.MakeStringResponse(err.Error(), 400), nil
 	}
 
-	fmt.Printf("authToken: %s\ttollpass: %+v\n", authToken, tollpass)
-
-	if !tollpass.Valid {
+	if !tollpass.Valid || authToken != tollpass.AuthToken {
+		logrus.Error(err)
 		return common.MakeStringResponse("invalid", 400), nil
-	}
-
-	if authToken != tollpass.AuthToken {
-		return common.MakeStringResponse("bad auth token", 400), nil
 	}
 
 	downloadUrl, err := storage.GeneratePresignedGetUrl(tollpass.S3Key)
 	if err != nil {
-		return common.MakeStringResponse(err.Error(), 500), nil
+		logrus.Error(err)
+		return common.MakeStringResponse("server error", 500), nil
 	}
 
 	return common.MakeJsonResponse(common.GetZapisResponse{
