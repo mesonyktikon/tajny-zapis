@@ -2,6 +2,7 @@ package logic
 
 import (
 	"encoding/hex"
+	"os"
 	"time"
 
 	"github.com/go-jose/go-jose/v3"
@@ -9,7 +10,14 @@ import (
 	"tuffbizz.com/m/v2/common"
 )
 
-const secret = "7370c6bce277bd1218a61cd30adc47c96174a0c55628bc73e9c3f94202e2e377"
+var secret string
+
+func init() {
+	secret = os.Getenv("TOLLPASS_SECRET")
+	if len(secret) != 64 {
+		panic("TOLLPASS_SECRET must be 64 characters long")
+	}
+}
 
 var key []byte
 
