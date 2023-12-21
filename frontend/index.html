@@ -19,8 +19,10 @@ Currently this displays the result of the encryption. Making the server call is 
 The call currently blocks for mvp but I plan on offloading the argon2 hashing to a worker.
 <p>
 
-<script>
-window.onload = () => document.getElementById('encrypt-form').addEventListener('submit', async (e) => {
+<script id="code-install-form-listeners">
+window.onload = () => {
+
+document.getElementById('encrypt-form').addEventListener('submit', async (e) => {
   e.preventDefault()
   const submitButton = document.getElementById('encrypt-submit')
   const plaintext = document.getElementById('encrypt-input-text').value
@@ -28,10 +30,12 @@ window.onload = () => document.getElementById('encrypt-form').addEventListener('
   const encryptResult = document.getElementById('encrypt-result')
   const encryptResultParams = document.getElementById('encrypt-result-params')
   const createZapisResult = document.getElementById('create-zapis-result')
+  const resultLink = document.getElementById('encrypt-result-link')
   
   encryptResult.textContent = ''
   encryptResultParams.textContent = ''
   createZapisResult.textContent= ''
+  resultLink.textContent = ''
   
   // todo add some loading screen
   
@@ -55,7 +59,44 @@ window.onload = () => document.getElementById('encrypt-form').addEventListener('
   }
   
   createZapisResult.textContent = JSON.stringify(output, null, 2)
+  resultLink.href = `#decrypt-${zapis.accessKey.replace(/ /g, '-')}`
+  resultLink.textContent = resultLink.href
 })
+
+document.getElementById('decrypt-form').addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const submitButton = document.getElementById('decrypt-submit')
+  const accessKey = document.getElementById('decrypt-access-key').value
+  const passphrase = document.getElementById('decrypt-passphrase').value
+  
+  if (accessKey.split(' ').length !== 3 || passphrase.split(' ').length !== 4) {
+    alert('access key needs to be 3 words and passphrase needs to be 4 words')
+    return
+  }
+  
+  const decryptResult = document.getElementById('decrypt-result')
+  
+  decryptResult.textContent = ''
+  submitButton.disabled = true
+  try {
+    const {salt, tollpass} = await getSalt(accessKey)
+    const {authToken, wrappingKey} = await deriveSecrets(passphrase, salt)
+    const {downloadUrl, wrappedKey} = await getZapis({authToken, tollpass})
+    const d = await fetch(downloadUrl)
+    const b = await d.blob()
+    const ciphertext = await b.arrayBuffer()
+    
+    const plaintext = await decrypt({passphrase, salt, wrappedKey, wrappingKey, ciphertext})
+    decryptResult.textContent = plaintext
+  } catch (err) {
+    console.log(err)
+    alert('error decrypting check console for details (incorrect key/passphrase?)')
+  }
+
+  
+  submitButton.disabled = false
+})
+}
 </script>
 
 <form id="encrypt-form">
@@ -76,6 +117,9 @@ window.onload = () => document.getElementById('encrypt-form').addEventListener('
 <p>The final result (if you see a something here, the s3 upload succeeded)...</p>
 <pre id="create-zapis-result"></pre>
 
+<br>
+
+<a href="" id="encrypt-result-link"></a>
 
 <p>
 The server responds with an access key that is used to obtain the note.
@@ -86,7 +130,7 @@ A presigned s3 url is also returned. This is where the client will upload the ci
 </div><!------------------------------------------------------------------------------------------->
 <!------------------------------------------------------------------------------------------------->
 <div class="page"                                                                   id="decrypt">
-<h1>                            							Decrypt    																	 </h1><hr>
+<h1>                                          Decrypt                                      </h1><hr>
 
 <form id="decrypt-form">
   <label>Access Key: <input type="text" rows="10" cols="50" id="decrypt-access-key" /></label>
@@ -95,7 +139,8 @@ A presigned s3 url is also returned. This is where the client will upload the ci
   <br>
   <input type="submit" value="submit" id="decrypt-submit" />
 </form>
-
+<br>
+<pre id="decrypt-result"></pre>
 
 </div><!------------------------------------------------------------------------------------------->
 <!------------------------------------------------------------------------------------------------->
@@ -157,6 +202,21 @@ tries to construct a valid string.
 <!------------------------------------------------------------------------------------------------->
 </div>                                                                           <!-- /container -->
 <footer class="top-and-bottom">      [0x70617765c582]                                      </footer>
+
+<script id="code-hash">
+const updateAccessKeyInput = (str) => {
+  const parts = str.split('-').splice(-4)
+  if (parts.length !== 4 || !parts[0].endsWith('#decrypt')) return
+  const input = document.getElementById('decrypt-access-key')
+  input.value = parts.splice(1).join(' ')
+}
+
+updateAccessKeyInput(location.hash)
+
+window.onhashchange = (e) => {
+  updateAccessKeyInput(location.hash)
+}
+</script>
 
 <script id="code-base64">
 const symbols = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
@@ -282,7 +342,7 @@ const makeTajnyZapis = async () => {
   }
   
   const deriveSecrets = async (pass, salt) => {
-    const {hash} = await argon2.hash({pass, salt, time: 150, mem: 20480, hashLen: 64, type: argon2.ArgonType.Argon2id})
+    const {hash} = await argon2.hash({pass, salt, time: 50, mem: 20480, hashLen: 64, type: argon2.ArgonType.Argon2id})
     const wrappingKey = await crypto.subtle.importKey('raw', hash.buffer.slice(32, 64), Aes256Gcm, false, ['wrapKey', 'unwrapKey'])
     return {
       authToken: encode64(hash.slice(0, 32)),
@@ -292,7 +352,7 @@ const makeTajnyZapis = async () => {
   
   const encrypt = async (plaintext) => {
     const encryptionKey = await crypto.subtle.generateKey(Aes256Gcm, true, ['encrypt'])
-    const salt = randomBytes(32)
+    const salt = encode64(randomBytes(32))
     const ciphertext = await crypto.subtle.encrypt(await Aes256GcmIv(cipherIv(salt)), encryptionKey, stob(plaintext))
     
     const passphrase = makePassphrase(4)
@@ -302,17 +362,18 @@ const makeTajnyZapis = async () => {
     
     return {
       passphrase,
-      salt: encode64(salt),
+      salt,
       ciphertext,
       wrappedKey: encode64(new Uint8Array(wrappedKey)),
       authToken,
     }
   }
   
-  const decrypt = async ({passphrase, salt, wrappedKey, ciphertext}) => {
-    wrappedKey = decode64(wrappedKey)
-    salt = decode64(salt)
-    const {wrappingKey} = await deriveSecrets(passphrase, salt)
+  const decrypt = async ({passphrase, salt, wrappedKey, wrappingKey, ciphertext}) => {
+    wrappedKey = decode64(wrappedKey).buffer
+    if (!wrappingKey) {
+      ({wrappingKey} = await deriveSecrets(passphrase, salt));
+    }
     
     const encryptionKey = await crypto.subtle.unwrapKey('raw',
       wrappedKey, wrappingKey, await Aes256GcmIv(wrapIv(salt)), Aes256Gcm, false, ['decrypt'])
@@ -346,6 +407,7 @@ const makeTajnyZapis = async () => {
   
   return {
     sanityCheck,
+    deriveSecrets,
     sha256,
     encrypt,
     decrypt,
