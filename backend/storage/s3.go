@@ -15,7 +15,7 @@ func init() {
 	s3Client = s3.New(session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 		Config: aws.Config{
-			Region: aws.String(config.AwsRegion),
+			Region: aws.String(config.BucketRegion),
 		},
 	})))
 }

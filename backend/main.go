@@ -26,6 +26,9 @@ func handleRequest(ctx context.Context, request *events.LambdaFunctionURLRequest
 	}
 	switch fmt.Sprintf("%s %s", request.RequestContext.HTTP.Method, request.RawPath) {
 
+	case "GET /v1/status":
+		return common.MakeStringResponse("ok", 200), nil
+
 	case "POST /v1/zapis":
 		return endpoints.CreateZapis(ctx, request)
 

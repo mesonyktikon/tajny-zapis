@@ -28,6 +28,10 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 		return common.MakeStringResponse("incorrect salt length", 400), nil
 	}
 
+	if len(req.SaltId) != config.SaltIdLength {
+		return common.MakeStringResponse("incorrect salt id length", 400), nil
+	}
+
 	if len(req.AuthToken) != config.AuthTokenLength {
 		return common.MakeStringResponse("incorrect auth token length", 400), nil
 	}
@@ -57,6 +61,7 @@ func CreateZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) 
 		HashedAccessKey: accessKeyHashString,
 		S3Key:           common.GenerateRandomString(config.S3KeyLength),
 		Ttl:             req.Ttl,
+		SaltId:          req.SaltId,
 	}
 
 	uploadUrl, err := storage.GeneratePresignedPutUrl(zapis.S3Key, req.FileSize)

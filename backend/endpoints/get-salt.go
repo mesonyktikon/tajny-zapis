@@ -19,18 +19,26 @@ func GetSalt(ctx context.Context, request *events.LambdaFunctionURLRequest) (*ev
 		return common.MakeStringResponse("incorrect length for hashed access key", 400), nil
 	}
 
-	dynamoItem, valid, err := storage.GetZapisOrDummyData(hashedAccessKey)
+	dynamoItems, _, err := storage.GetZapisOrDummyData(hashedAccessKey)
 	if err != nil {
 		logrus.Error(err)
 		return common.MakeStringResponse("server error", 500), nil
 	}
 
-	tollpassJwt, err := tokens.GenerateTollPassJwt(&tokens.TollPass{
-		Valid:      valid,
-		AuthToken:  dynamoItem.AuthToken,
-		WrappedKey: dynamoItem.WrappedKey,
-		S3Key:      dynamoItem.S3Key,
-	})
+	var tollpass tokens.TollPass
+	saltCandidates := make(map[string]string)
+	tollpass.Candidates = make([]tokens.TollPassCandidate, len(dynamoItems))
+
+	for idx, item := range dynamoItems {
+		saltCandidates[item.SaltId] = item.Salt
+		tollpass.Candidates[idx] = tokens.TollPassCandidate{
+			AuthToken:  item.AuthToken,
+			WrappedKey: item.WrappedKey,
+			S3Key:      item.S3Key,
+		}
+	}
+
+	tollpassJwt, err := tokens.GenerateTollPassJwt(&tollpass)
 
 	if err != nil {
 		logrus.Error(err)
@@ -38,7 +46,7 @@ func GetSalt(ctx context.Context, request *events.LambdaFunctionURLRequest) (*ev
 	}
 
 	return common.MakeJsonResponse(wire.GetSaltResponse{
-		Salt:        dynamoItem.Salt,
+		Salts:       saltCandidates,
 		TollPassJwt: tollpassJwt,
 	}, 200), nil
 }

@@ -79,7 +79,7 @@ document.getElementById('decrypt-form').addEventListener('submit', async (e) => 
   decryptResult.textContent = ''
   submitButton.disabled = true
   try {
-    const {salt, tollpass} = await getSalt(accessKey)
+    const {salt, tollpass} = await getSalt({accessKey, passphrase})
     const {authToken, wrappingKey} = await deriveSecrets(passphrase, salt)
     const {downloadUrl, wrappedKey} = await getZapis({authToken, tollpass})
     const d = await fetch(downloadUrl)
@@ -363,6 +363,7 @@ const makeTajnyZapis = async () => {
     return {
       passphrase,
       salt,
+      saltId: encode64(new Uint8Array(await sha256(passphrase, salt))),
       ciphertext,
       wrappedKey: encode64(new Uint8Array(wrappedKey)),
       authToken,
@@ -426,12 +427,12 @@ makeTajnyZapis().then((tajnyZapis) => {
 
 <script id="code-api">
 const makeApi = async () => {
-  const createZapis = async ({salt, authToken, wrappedKey, ciphertext} = {}) => {
+  const createZapis = async ({salt, saltId, authToken, wrappedKey, ciphertext} = {}) => {
     try {
       if (!salt || !authToken || !wrappedKey || !ciphertext) throw new Error('missing parameter')
       const res = await fetch('/v1/zapis', {
         method: 'POST',
-        body: JSON.stringify({salt, authToken, wrappedKey, fileSize: ciphertext.byteLength})
+        body: JSON.stringify({salt, saltId, authToken, wrappedKey, fileSize: ciphertext.byteLength})
       })
       const result =  await res.json()
       const uploaded = await fetch(result.uploadUrl, {method: 'PUT', body: ciphertext})
@@ -442,14 +443,23 @@ const makeApi = async () => {
     }
   }
   
-  const getSalt = async (accessKey) => {
+  const getSalt = async ({accessKey, passphrase}) => {
     if (typeof accessKey !== 'string') throw new Error('missing string accessKey')
     const res = await fetch('/v1/salt', {
       headers: {
         'x-tajny-zapis-hashed-access-key': encode64(new Uint8Array(await sha256(accessKey))),
       }
     })
-    return await res.json()
+    const {salts, tollpass} = await res.json()
+    for (const saltId in salts) {
+      if (saltId === encode64(new Uint8Array(await sha256(passphrase, salts[saltId])))) {
+        return {
+          salt: salts[saltId],
+          tollpass,
+        }
+      }
+    }
+    throw new Error('no matching saltId')
   }
   
   const getZapis = async ({authToken, tollpass}) => {

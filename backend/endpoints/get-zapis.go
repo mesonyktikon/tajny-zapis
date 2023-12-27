@@ -21,18 +21,20 @@ func GetZapis(ctx context.Context, request *events.LambdaFunctionURLRequest) (*e
 		return common.MakeStringResponse("invalid tollpass", 401), nil
 	}
 
-	if !tollpass.Valid || authToken != tollpass.AuthToken {
-		return common.MakeStringResponse("invalid salt or auth token", 403), nil
+	for _, candidate := range tollpass.Candidates {
+		if authToken == candidate.AuthToken {
+			downloadUrl, err := storage.GeneratePresignedGetUrl(candidate.S3Key)
+			if err != nil {
+				logrus.Error(err)
+				return common.MakeStringResponse("server error", 500), nil
+			}
+
+			return common.MakeJsonResponse(wire.GetZapisResponse{
+				DownloadUrl: downloadUrl,
+				WrappedKey:  candidate.WrappedKey,
+			}, 200), nil
+		}
 	}
 
-	downloadUrl, err := storage.GeneratePresignedGetUrl(tollpass.S3Key)
-	if err != nil {
-		logrus.Error(err)
-		return common.MakeStringResponse("server error", 500), nil
-	}
-
-	return common.MakeJsonResponse(wire.GetZapisResponse{
-		DownloadUrl: downloadUrl,
-		WrappedKey:  tollpass.WrappedKey,
-	}, 200), nil
+	return common.MakeStringResponse("invalid salt or auth token", 403), nil
 }

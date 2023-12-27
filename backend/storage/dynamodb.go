@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -21,6 +20,8 @@ type TajnyZapisDynamoItem struct {
 
 	S3Key string `dynamodbav:"s3_key"`
 	Ttl   int64  `dynamodbav:"ttl"`
+
+	SaltId string `dynamodbav:"salt_id"`
 }
 
 var ddb *dynamodb.DynamoDB
@@ -29,7 +30,7 @@ func init() {
 	ddb = dynamodb.New(session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 		Config: aws.Config{
-			Region: aws.String(config.AwsRegion),
+			Region: aws.String(config.TableRegion),
 		},
 	})))
 }
@@ -48,28 +49,25 @@ func TryPutZapis(zapis *TajnyZapisDynamoItem) error {
 	return err
 }
 
-func GetZapisOrDummyData(hashedAccessKey string) (*TajnyZapisDynamoItem, bool, error) {
+func GetZapisOrDummyData(hashedAccessKey string) ([]*TajnyZapisDynamoItem, bool, error) {
 	items, err := fetchFromGSI("access_key-index", "access_key", hashedAccessKey)
 	if err != nil {
 		return nil, false, err
 	}
 
-	if len(items) > 1 {
-		panic(fmt.Sprintf("access_key-index has more than one item for access_key=%s", hashedAccessKey))
-	}
-
 	if len(items) == 0 {
-		return &TajnyZapisDynamoItem{
+		return []*TajnyZapisDynamoItem{{
 			Salt:            common.GenerateRandomString(config.SaltLength),
 			HashedAccessKey: hashedAccessKey,
 			AuthToken:       common.GenerateRandomString(config.AuthTokenLength),
 			WrappedKey:      common.GenerateRandomString(config.WrappedKeyLength),
 			S3Key:           common.GenerateRandomString(config.S3KeyLength),
 			Ttl:             time.Now().Unix(),
-		}, false, nil
+			SaltId:          common.GenerateRandomString(config.SaltIdLength),
+		}}, false, nil
 	}
 
-	return items[0], true, nil
+	return items, true, nil
 }
 
 func fetchFromGSI(indexName, partitionKey, partitionValue string) ([]*TajnyZapisDynamoItem, error) {

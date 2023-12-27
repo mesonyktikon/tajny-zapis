@@ -1,6 +1,7 @@
 package wire
 
 type CreateZapisRequest struct {
+	SaltId     string `json:"saltId"`
 	Salt       string `json:"salt"`
 	AuthToken  string `json:"authToken"`
 	WrappedKey string `json:"wrappedKey"`
@@ -18,8 +19,8 @@ type GetSaltRequest struct {
 }
 
 type GetSaltResponse struct {
-	Salt        string `json:"salt"`
-	TollPassJwt string `json:"tollpass"`
+	Salts       map[string]string `json:"salts"`
+	TollPassJwt string            `json:"tollpass"`
 }
 
 type GetZapisResponse struct {

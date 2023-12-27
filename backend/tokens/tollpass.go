@@ -9,11 +9,14 @@ import (
 	"github.com/go-jose/go-jose/v3/jwt"
 )
 
-type TollPass struct {
-	Valid      bool   `json:"valid"`
+type TollPassCandidate struct {
 	WrappedKey string `json:"wrappedKey"`
 	AuthToken  string `json:"authToken"`
 	S3Key      string `json:"s3Key"`
+}
+
+type TollPass struct {
+	Candidates []TollPassCandidate `json:"candidates"`
 }
 
 var key []byte
