@@ -40,3 +40,18 @@ function deploy-tajny-zapis () {
 ```
 aws s3 sync frontend s3://tajnyzapis.dev
 ```
+
+## Update April 2024
+I haven't touched this project for several months. Reading through the encryption flow with a better understanding
+of crypto, there a couple of minor improvements that can be done. I don't have the time to make changes, and this project
+doesn't get any interest anyway.
+
+Additionally, I designed this architecture after being in the cloud world for years. Now that I've been independent for
+some time, I don't think a fragmented architecture is the best approach for this kind of application. I think a superior
+approach is to run a dedicated server on OVHcloud, and make the whole application a self-contained go binary, using htmx
+for the frontend and sqlite for storage. All hosted on an OpenBSD machine, properly pledge()'d and unveil()'d, behind relayd.
+An app like this uses so little as far as server resources go that it can easily co-exist with other similarly made apps.
+Backups can be scheduled with cron, encrypted and authenticated using standard openssl commands, scp'd to rsync.net.
+Server redundancy can be achived with having an "additional" IP and re-routing it to the backup sever.
+Depending on data needs, litestream can be used to ensure that the backup database is a fully ready clone of prod.
+
